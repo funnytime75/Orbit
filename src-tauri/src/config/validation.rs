@@ -1,5 +1,6 @@
-use crate::config::model::{ActionConfig, IconConfig, OrbitConfig};
+use crate::config::model::{ActionConfig, IconConfig, OrbitConfig, WheelBackgroundType};
 use crate::error::OrbitError;
+use std::path::Path;
 
 pub fn validate_config(config: &OrbitConfig) -> Result<(), OrbitError> {
     if config.version != 1 {
@@ -24,6 +25,7 @@ pub fn validate_config(config: &OrbitConfig) -> Result<(), OrbitError> {
     if config.wheel.inner_radius_px >= config.wheel.outer_radius_px {
         return Err(invalid("wheel.innerRadiusPx 必须小于 wheel.outerRadiusPx"));
     }
+    validate_appearance(config)?;
 
     if config.menus.is_empty() {
         return Err(invalid("menus 至少需要一个菜单"));
@@ -51,9 +53,64 @@ pub fn validate_config(config: &OrbitConfig) -> Result<(), OrbitError> {
     Ok(())
 }
 
+fn validate_appearance(config: &OrbitConfig) -> Result<(), OrbitError> {
+    let appearance = &config.wheel.appearance;
+    validate_float_range(appearance.opacity, 0.35, 1.0, "wheel.appearance.opacity")?;
+    validate_range(appearance.blur_px, 0, 32, "wheel.appearance.blurPx")?;
+    validate_float_range(
+        appearance.background.opacity,
+        0.0,
+        0.6,
+        "wheel.appearance.background.opacity",
+    )?;
+    validate_hex_color(
+        &appearance.background_color,
+        "wheel.appearance.backgroundColor",
+    )?;
+    validate_hex_color(&appearance.border_color, "wheel.appearance.borderColor")?;
+    validate_hex_color(&appearance.active_color, "wheel.appearance.activeColor")?;
+
+    if matches!(
+        appearance.background.background_type,
+        WheelBackgroundType::Image
+    ) && appearance
+        .background
+        .image_path
+        .as_deref()
+        .is_none_or(|path| path.trim().is_empty())
+    {
+        return Err(invalid("wheel.appearance.background.imagePath 不能为空"));
+    }
+
+    Ok(())
+}
+
 fn validate_range(value: u16, min: u16, max: u16, path: &'static str) -> Result<(), OrbitError> {
     if value < min || value > max {
         return Err(invalid(format!("{path} 必须在 {min} 到 {max} 之间")));
+    }
+
+    Ok(())
+}
+
+fn validate_float_range(
+    value: f32,
+    min: f32,
+    max: f32,
+    path: &'static str,
+) -> Result<(), OrbitError> {
+    if !value.is_finite() || value < min || value > max {
+        return Err(invalid(format!("{path} 必须在 {min} 到 {max} 之间")));
+    }
+
+    Ok(())
+}
+
+fn validate_hex_color(value: &str, path: &'static str) -> Result<(), OrbitError> {
+    let color = value.trim();
+    let hex = color.strip_prefix('#').unwrap_or("");
+    if hex.len() != 6 || !hex.chars().all(|item| item.is_ascii_hexdigit()) {
+        return Err(invalid(format!("{path} 必须是 #RRGGBB 格式")));
     }
 
     Ok(())
@@ -95,6 +152,7 @@ fn validate_action(action: &ActionConfig, path: String) -> Result<(), OrbitError
         ActionConfig::App { program, .. } if program.trim().is_empty() => {
             Err(invalid(format!("{path}.program 不能为空")))
         }
+        ActionConfig::App { program, .. } => validate_app_program_shape(program),
         ActionConfig::File { path: file_path } if file_path.trim().is_empty() => {
             Err(invalid(format!("{path}.path 不能为空")))
         }
@@ -115,6 +173,18 @@ fn validate_action(action: &ActionConfig, path: String) -> Result<(), OrbitError
         ))),
         _ => Ok(()),
     }
+}
+
+fn validate_app_program_shape(program: &str) -> Result<(), OrbitError> {
+    if !Path::new(program)
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+    {
+        return Err(invalid("首版只支持 Windows .exe 应用"));
+    }
+
+    Ok(())
 }
 
 fn invalid(message: impl Into<String>) -> OrbitError {
@@ -152,5 +222,62 @@ mod tests {
         let error = validate_config(&config).expect_err("应该拒绝无效 ID");
 
         assert!(error.to_string().contains("只能包含小写字母"));
+    }
+
+    #[test]
+    fn rejects_invalid_appearance_opacity() {
+        let mut config = default_config();
+        config.wheel.appearance.opacity = 0.2;
+
+        let error = validate_config(&config).expect_err("应该拒绝过低透明度");
+
+        assert!(error.to_string().contains("appearance.opacity"));
+    }
+
+    #[test]
+    fn rejects_invalid_appearance_color() {
+        let mut config = default_config();
+        config.wheel.appearance.active_color = "blue".to_string();
+
+        let error = validate_config(&config).expect_err("应该拒绝非十六进制颜色");
+
+        assert!(error.to_string().contains("#RRGGBB"));
+    }
+
+    #[test]
+    fn rejects_image_background_without_path() {
+        use crate::config::model::WheelBackgroundType;
+
+        let mut config = default_config();
+        config.wheel.appearance.background.background_type = WheelBackgroundType::Image;
+        config.wheel.appearance.background.image_path = None;
+
+        let error = validate_config(&config).expect_err("应该拒绝缺少路径的图片背景");
+
+        assert!(error.to_string().contains("imagePath"));
+    }
+
+    #[test]
+    fn accepts_missing_absolute_exe_path_while_loading_config() {
+        let mut config = default_config();
+        config.menus[0].sectors[0].action = crate::config::model::ActionConfig::App {
+            program: "C:\\DefinitelyMissing\\orbit.exe".to_string(),
+            args: vec![],
+        };
+
+        assert!(validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn rejects_non_exe_app_program() {
+        let mut config = default_config();
+        config.menus[0].sectors[0].action = crate::config::model::ActionConfig::App {
+            program: "C:\\Tools\\demo.cmd".to_string(),
+            args: vec![],
+        };
+
+        let error = validate_config(&config).expect_err("应该拒绝非 exe 应用路径");
+
+        assert!(error.to_string().contains(".exe"));
     }
 }

@@ -9,6 +9,13 @@ lerna-debug.log*
 vite-dev.log
 vite-dev.err.log
 
+# 仅使用 pnpm，避免混入其他包管理器锁文件
+package-lock.json
+npm-shrinkwrap.json
+yarn.lock
+bun.lock
+bun.lockb
+
 # 前端依赖和构建产物
 node_modules/
 dist/
@@ -48,6 +55,7 @@ src-tauri/.tauri/
 *.pdb
 
 # 本地环境和临时文件
+.tmp/
 .env
 .env.*
 !.env.example
@@ -56,6 +64,13 @@ src-tauri/.tauri/
 *.temp
 *.bak
 *.orig
+
+# 本地 AI / 编辑器助手产物
+.agents/
+.claude/
+.cursor/
+.gemini/
+.impeccable/
 
 # 编辑器和系统文件
 .vscode/

@@ -5,6 +5,16 @@ use thiserror::Error;
 pub enum OrbitError {
     #[error("配置文件格式无效：{0}")]
     ConfigInvalid(String),
+    #[error("配置文件读写失败：{0}")]
+    ConfigIo(String),
+    #[error("动作执行失败：{0}")]
+    ActionFailed(String),
+    #[error("动作暂不支持：{0}")]
+    ActionUnsupported(String),
+    #[error("运行状态访问失败：{0}")]
+    State(String),
+    #[error("开机自启同步失败：{0}")]
+    Autostart(String),
 }
 
 #[derive(Debug, Serialize)]
@@ -20,6 +30,31 @@ impl From<OrbitError> for CommandError {
             OrbitError::ConfigInvalid(detail) => Self {
                 code: "CONFIG_INVALID",
                 message: "配置文件格式无效".to_string(),
+                detail,
+            },
+            OrbitError::ConfigIo(detail) => Self {
+                code: "CONFIG_IO_FAILED",
+                message: "配置文件读写失败".to_string(),
+                detail,
+            },
+            OrbitError::ActionFailed(detail) => Self {
+                code: "ACTION_FAILED",
+                message: "动作执行失败".to_string(),
+                detail,
+            },
+            OrbitError::ActionUnsupported(detail) => Self {
+                code: "ACTION_UNSUPPORTED",
+                message: "动作暂不支持".to_string(),
+                detail,
+            },
+            OrbitError::State(detail) => Self {
+                code: "STATE_FAILED",
+                message: "运行状态访问失败".to_string(),
+                detail,
+            },
+            OrbitError::Autostart(detail) => Self {
+                code: "AUTOSTART_FAILED",
+                message: "开机自启同步失败".to_string(),
                 detail,
             },
         }

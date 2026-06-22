@@ -12,7 +12,10 @@ const iconSchema = z.object({
 const actionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("app"),
-    program: z.string().min(1, "应用程序不能为空"),
+    program: z
+      .string()
+      .min(1, "应用程序不能为空")
+      .refine((value) => value.trim().toLowerCase().endsWith(".exe"), "首版只支持 Windows .exe 应用"),
     args: z.array(z.string()),
   }),
   z.object({
@@ -54,10 +57,41 @@ const menuSchema = z.object({
     .max(12, "每个菜单最多支持 12 个扇区"),
 });
 
+const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "颜色必须是 #RRGGBB 格式");
+
+const wheelAppearanceSchema = z.object({
+  material: z.enum(["transparent", "acrylic", "frosted", "solid"]),
+  opacity: z.number().min(0.35, "不透明度不能小于 0.35").max(1, "不透明度不能大于 1"),
+  blurPx: z.number().int().min(0, "模糊强度不能小于 0").max(32, "模糊强度不能大于 32"),
+  backgroundColor: hexColorSchema,
+  borderColor: hexColorSchema,
+  activeColor: hexColorSchema,
+  background: z
+    .object({
+      type: z.enum(["none", "image"]),
+      imagePath: z.string().nullable(),
+      fit: z.enum(["cover", "contain"]),
+      opacity: z.number().min(0, "背景图不透明度不能小于 0").max(0.6, "背景图不透明度不能大于 0.6"),
+    })
+    .superRefine((background, context) => {
+      if (background.type === "image" && !background.imagePath?.trim()) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "图片背景路径不能为空",
+          path: ["imagePath"],
+        });
+      }
+    }),
+});
+
 export const orbitConfigSchema = z
   .object({
     version: z.literal(1),
     enabled: z.boolean(),
+    startup: z.object({
+      launchAtLogin: z.boolean(),
+      silentStart: z.boolean(),
+    }),
     trigger: z.object({
       button: z.literal("middle"),
       holdMs: z.number().int().min(120, "长按时间不能小于 120ms").max(600, "长按时间不能大于 600ms"),
@@ -71,8 +105,12 @@ export const orbitConfigSchema = z
       startAngleDeg: z.number().min(-360, "起始角度不能小于 -360").max(360, "起始角度不能大于 360"),
       animationMs: z.number().int().min(0, "动画时间不能小于 0ms").max(500, "动画时间不能大于 500ms"),
       theme: z.enum(["system", "light", "dark"]),
+      appearance: wheelAppearanceSchema,
     }),
     menus: z.array(menuSchema).min(1, "至少需要一个菜单"),
+    uiState: z.object({
+      lastAppPickerDir: z.string().optional().nullable(),
+    }),
   })
   .superRefine((config, context) => {
     if (config.wheel.innerRadiusPx >= config.wheel.outerRadiusPx) {
@@ -90,6 +128,10 @@ export type OrbitAction = OrbitConfig["menus"][number]["sectors"][number]["actio
 export const defaultOrbitConfig: OrbitConfig = {
   version: 1,
   enabled: true,
+  startup: {
+    launchAtLogin: false,
+    silentStart: false,
+  },
   trigger: {
     button: "middle",
     holdMs: 220,
@@ -103,6 +145,20 @@ export const defaultOrbitConfig: OrbitConfig = {
     startAngleDeg: -90,
     animationMs: 90,
     theme: "system",
+    appearance: {
+      material: "acrylic",
+      opacity: 0.9,
+      blurPx: 18,
+      backgroundColor: "#101827",
+      borderColor: "#2b3d58",
+      activeColor: "#2f6df6",
+      background: {
+        type: "none",
+        imagePath: null,
+        fit: "cover",
+        opacity: 0.35,
+      },
+    },
   },
   menus: [
     {
@@ -136,20 +192,24 @@ export const defaultOrbitConfig: OrbitConfig = {
           },
         },
         {
-          id: "docs",
-          label: "项目文档",
+          id: "notepad",
+          label: "记事本",
           icon: {
             type: "text",
-            value: "D",
+            value: "记",
           },
           action: {
-            type: "file",
-            path: "Orbit.md",
+            type: "app",
+            program: "notepad.exe",
+            args: [],
           },
         },
       ],
     },
   ],
+  uiState: {
+    lastAppPickerDir: "C:\\Program Files",
+  },
 };
 
 export function validateOrbitConfig(config: unknown): OrbitConfig {
