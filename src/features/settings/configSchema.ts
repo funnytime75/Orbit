@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeShortcut } from "./shortcutRecorder";
 
 const idSchema = z
   .string()
@@ -94,6 +95,20 @@ export const orbitConfigSchema = z
     }),
     trigger: z.object({
       button: z.literal("middle"),
+      shortcut: z
+        .string()
+        .min(1, "触发快捷键不能为空")
+        .transform((value, context) => {
+          const shortcut = normalizeShortcut(value);
+          if (!shortcut) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "请使用 Ctrl、Alt、Shift 或 Win 与另一个按键组合",
+            });
+            return z.NEVER;
+          }
+          return shortcut;
+        }),
       holdMs: z.number().int().min(120, "长按时间不能小于 120ms").max(600, "长按时间不能大于 600ms"),
       moveThresholdPx: z.number().int().min(8, "移动阈值不能小于 8px").max(60, "移动阈值不能大于 60px"),
       cancelDistancePx: z.number().int().min(0, "取消距离不能小于 0px").max(120, "取消距离不能大于 120px"),
@@ -134,6 +149,7 @@ export const defaultOrbitConfig: OrbitConfig = {
   },
   trigger: {
     button: "middle",
+    shortcut: "Alt+Space",
     holdMs: 220,
     moveThresholdPx: 18,
     cancelDistancePx: 14,

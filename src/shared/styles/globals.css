@@ -65,6 +65,15 @@ body {
   background: var(--color-app-bg);
 }
 
+html.orbit-wheel-root,
+html.orbit-wheel-root #root,
+body.orbit-wheel-body {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
 button,
 input,
 textarea,
@@ -179,6 +188,15 @@ canvas:focus-visible {
 
 .wheel-preview__canvas {
   display: block;
+}
+
+.wheel-window-shell {
+  display: grid;
+  width: 100vw;
+  height: 100vh;
+  place-items: center;
+  overflow: hidden;
+  background: transparent;
 }
 
 .wheel-summary {
@@ -714,6 +732,61 @@ canvas:focus-visible {
   text-align: right;
 }
 
+.shortcut-recorder {
+  display: grid;
+  gap: 5px;
+  justify-items: end;
+}
+
+.shortcut-recorder__button {
+  display: flex;
+  min-width: 172px;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-surface-sunken);
+  color: var(--color-ink-control);
+  padding: 6px 9px;
+}
+
+.shortcut-recorder__button:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
+.shortcut-recorder__button--recording,
+.shortcut-recorder__button--recording:hover {
+  border-color: var(--color-action-blue);
+  background: color-mix(in srgb, var(--color-action-blue) 24%, var(--color-surface-sunken));
+}
+
+.shortcut-recorder__button[aria-invalid="true"] {
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-bg);
+}
+
+.shortcut-recorder__button span {
+  color: var(--color-ink-strong);
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.shortcut-recorder__button small {
+  color: var(--color-ink-muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.shortcut-recorder__error {
+  max-width: 220px;
+  text-align: right;
+}
+
 .sector-list {
   display: grid;
   gap: 10px;
@@ -933,6 +1006,20 @@ canvas:focus-visible {
 
   .setting-row__control {
     justify-content: flex-start;
+  }
+
+  .shortcut-recorder {
+    justify-items: stretch;
+    width: 100%;
+  }
+
+  .shortcut-recorder__button {
+    width: 100%;
+  }
+
+  .shortcut-recorder__error {
+    max-width: none;
+    text-align: left;
   }
 
   .segmented-control {

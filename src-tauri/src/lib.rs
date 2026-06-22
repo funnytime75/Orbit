@@ -1,6 +1,8 @@
 mod action;
 mod config;
 mod error;
+mod mouse_trigger;
+mod shortcut;
 mod state;
 
 use action::execute_action as run_action;
@@ -8,6 +10,8 @@ use config::model::{ActionConfig, OrbitConfig};
 use config::repository::{default_config, load_or_create_config, save_config as save_config_file};
 use config::validation::validate_config as validate_orbit_config;
 use error::{CommandError, CommandResult, OrbitError};
+use mouse_trigger::{start_mouse_trigger, stop_mouse_trigger};
+use shortcut::sync_trigger_shortcut;
 use state::{AppState, RuntimeStatus};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -24,6 +28,7 @@ pub fn run() {
                 default_config()
             });
             app.manage(AppState::new(config.clone(), config_path));
+            app.manage(AppStateCleanup);
 
             #[cfg(desktop)]
             {
@@ -35,12 +40,19 @@ pub fn run() {
                 if let Err(error) = sync_autostart(app.handle(), config.startup.launch_at_login) {
                     eprintln!("同步开机自启失败：{error}");
                 }
+                if let Err(error) = sync_trigger_shortcut(app.handle(), &config.trigger.shortcut) {
+                    eprintln!("同步触发快捷键失败：{error}");
+                }
+                if let Err(error) = start_mouse_trigger(app.handle()) {
+                    eprintln!("启动鼠标触发监听失败：{error}");
+                }
                 setup_tray(app.handle())?;
             }
 
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .on_window_event(|window, event| {
             if window.label() == "main" {
@@ -90,6 +102,7 @@ fn save_config(
 ) -> CommandResult<OrbitConfig> {
     validate_orbit_config(&config).map_err(CommandError::from)?;
     sync_autostart(&app, config.startup.launch_at_login).map_err(CommandError::from)?;
+    sync_trigger_shortcut(&app, &config.trigger.shortcut).map_err(CommandError::from)?;
     save_config_file(&state.config_path, &config).map_err(CommandError::from)?;
 
     {
@@ -175,6 +188,14 @@ fn setup_tray(app: &AppHandle) -> Result<(), tauri::Error> {
 
     Ok(())
 }
+
+impl Drop for AppStateCleanup {
+    fn drop(&mut self) {
+        stop_mouse_trigger();
+    }
+}
+
+struct AppStateCleanup;
 
 fn apply_startup_window_policy(app: &AppHandle, config: &OrbitConfig) {
     let silent_arg = std::env::args().any(|arg| arg == "--silent");

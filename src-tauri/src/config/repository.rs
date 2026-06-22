@@ -1,6 +1,7 @@
 use crate::config::model::{
-    default_startup_config, default_ui_state, default_wheel_appearance, ActionConfig, IconConfig,
-    MenuConfig, OrbitConfig, SectorConfig, ThemeMode, TriggerButton, TriggerConfig, WheelConfig,
+    default_startup_config, default_trigger_shortcut, default_ui_state, default_wheel_appearance,
+    ActionConfig, IconConfig, MenuConfig, OrbitConfig, SectorConfig, ThemeMode, TriggerButton,
+    TriggerConfig, WheelConfig,
 };
 use crate::config::validation::validate_config;
 use crate::error::OrbitError;
@@ -15,6 +16,7 @@ pub fn default_config() -> OrbitConfig {
         startup: default_startup_config(),
         trigger: TriggerConfig {
             button: TriggerButton::Middle,
+            shortcut: default_trigger_shortcut(),
             hold_ms: 220,
             move_threshold_px: 18,
             cancel_distance_px: 14,
@@ -153,7 +155,7 @@ fn temp_config_path(config_path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_config, save_config};
+    use super::{default_config, load_or_create_config, save_config};
     use crate::config::validation::validate_config;
     use std::fs;
 
@@ -163,7 +165,29 @@ mod tests {
 
         assert!(!config.startup.launch_at_login);
         assert!(!config.startup.silent_start);
+        assert_eq!(config.trigger.shortcut, "Alt+Space");
         assert!(config.ui_state.last_app_picker_dir.is_some());
+    }
+
+    #[test]
+    fn load_config_fills_default_shortcut_for_old_config() {
+        let mut config = default_config();
+        let path = std::env::temp_dir().join(format!(
+            "orbit-old-trigger-{}.json",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("系统时间异常")
+                .as_nanos()
+        ));
+        save_config(&path, &config).expect("应该能保存默认配置");
+        let mut saved = fs::read_to_string(&path).expect("应该能读取配置");
+        saved = saved.replace("    \"shortcut\": \"Alt+Space\",\n", "");
+        fs::write(&path, saved).expect("应该能写入旧配置");
+
+        config = load_or_create_config(&path).expect("旧配置应该能加载");
+
+        assert_eq!(config.trigger.shortcut, "Alt+Space");
+        let _ = fs::remove_file(path);
     }
 
     #[test]

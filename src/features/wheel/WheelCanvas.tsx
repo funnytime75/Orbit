@@ -8,10 +8,11 @@ interface WheelCanvasProps {
   describedBy?: string;
   menu: WheelMenu;
   previewSectorIndex?: number | null;
+  runtimeCursor?: Point | null;
   wheel: WheelConfig;
 }
 
-export function WheelCanvas({ describedBy, menu, previewSectorIndex = null, wheel }: WheelCanvasProps) {
+export function WheelCanvas({ describedBy, menu, previewSectorIndex = null, runtimeCursor = null, wheel }: WheelCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cursorRef = useRef({ x: wheel.sizePx / 2, y: wheel.sizePx / 2 });
   const activeIndexRef = useRef<number | null>(null);
@@ -52,6 +53,14 @@ export function WheelCanvas({ describedBy, menu, previewSectorIndex = null, whee
 
     previewSector(previewSectorIndex);
   }, [menu.sectors.length, previewSectorIndex, wheel]);
+
+  useEffect(() => {
+    if (!runtimeCursor) {
+      return;
+    }
+
+    cursorRef.current = runtimeCursor;
+  }, [runtimeCursor]);
 
   useEffect(() => {
     if (activeIndexRef.current === null || activeIndexRef.current < menu.sectors.length) {

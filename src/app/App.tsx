@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ConfigPreview } from "../features/settings/ConfigPreview";
 import { SettingsPage, type SettingsStatus } from "../features/settings/SettingsPage";
 import { defaultOrbitConfig, type OrbitConfig } from "../features/settings/configSchema";
 import { WheelCanvas } from "../features/wheel/WheelCanvas";
 import { getSectorPlacement } from "../features/wheel/sectorPlacement";
 import { executeAction, getRuntimeStatus, loadConfig, saveConfig, type RuntimeStatus } from "../shared/ipc/commands";
+import { orbitEvents } from "../shared/ipc/events";
 import { toUserFacingErrorMessage } from "../shared/errors/userFacingError";
 
 const CONFIG_PREVIEW_STORAGE_KEY = "orbit:show-config-preview";
 
 function App() {
+  const [windowLabel, setWindowLabel] = useState(getInitialWindowLabel);
   const [savedConfig, setSavedConfig] = useState<OrbitConfig>(defaultOrbitConfig);
   const [draftConfig, setDraftConfig] = useState<OrbitConfig>(defaultOrbitConfig);
   const [status, setStatus] = useState<SettingsStatus>({
@@ -25,6 +30,14 @@ function App() {
 
   const isDirty = useMemo(() => JSON.stringify(savedConfig) !== JSON.stringify(draftConfig), [savedConfig, draftConfig]);
   const isConfigPreviewAvailable = useMemo(isDebugConfigPreviewAvailable, []);
+
+  useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
+    setWindowLabel(getCurrentWindow().label);
+  }, []);
 
   const refreshRuntimeStatus = useCallback(async (options: { clearResolvedRuntimeError?: boolean } = {}) => {
     try {
@@ -161,6 +174,10 @@ function App() {
   const runtimeLabel = getRuntimeLabel(runtimeStatus);
   const wheelDescriptionId = "wheel-preview-description";
 
+  if (windowLabel === "wheel") {
+    return <WheelWindow />;
+  }
+
   return (
     <main className="app-shell">
       <header className="app-header">
@@ -238,6 +255,104 @@ function App() {
       </section>
     </main>
   );
+}
+
+function WheelWindow() {
+  const [config, setConfig] = useState<OrbitConfig>(defaultOrbitConfig);
+  const [runtimeCursor, setRuntimeCursor] = useState<{ x: number; y: number } | null>(null);
+
+  async function loadWheelConfig() {
+    try {
+      const loadedConfig = await loadConfig();
+      setConfig(loadedConfig);
+    } catch {
+      setConfig(defaultOrbitConfig);
+    }
+  }
+
+  useEffect(() => {
+    document.documentElement.classList.add("orbit-wheel-root");
+    document.body.classList.add("orbit-wheel-body");
+    return () => {
+      document.documentElement.classList.remove("orbit-wheel-root");
+      document.body.classList.remove("orbit-wheel-body");
+    };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+
+    async function loadInitialWheelConfig() {
+      try {
+        const loadedConfig = await loadConfig();
+        if (!disposed) {
+          setConfig(loadedConfig);
+        }
+      } catch {
+        if (!disposed) {
+          setConfig(defaultOrbitConfig);
+        }
+      }
+    }
+
+    void loadInitialWheelConfig();
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && isTauri()) {
+        void getCurrentWindow().hide();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
+    const unlisteners = [
+      listen<WheelSessionPayload>(orbitEvents.wheelStart, (event) => {
+        void loadWheelConfig();
+        setRuntimeCursor(toWheelPoint(event.payload));
+      }),
+      listen<WheelSessionPayload>(orbitEvents.wheelMove, (event) => {
+        setRuntimeCursor(toWheelPoint(event.payload));
+      }),
+      listen<WheelSessionPayload>(orbitEvents.wheelEnd, () => {
+        setRuntimeCursor(null);
+      }),
+    ];
+
+    return () => {
+      void Promise.all(unlisteners).then((items) => items.forEach((unlisten) => unlisten()));
+    };
+  }, []);
+
+  return (
+    <main className="wheel-window-shell" aria-label="Orbit 轮盘">
+      <WheelCanvas menu={config.menus[0]} runtimeCursor={runtimeCursor} wheel={config.wheel} />
+    </main>
+  );
+}
+
+interface WheelSessionPayload {
+  cursor: { x: number; y: number };
+  origin: { x: number; y: number };
+  windowPosition: { x: number; y: number };
+}
+
+function toWheelPoint(payload: WheelSessionPayload): { x: number; y: number } {
+  return {
+    x: payload.cursor.x - payload.windowPosition.x,
+    y: payload.cursor.y - payload.windowPosition.y,
+  };
 }
 
 function WheelSemanticSummary({
@@ -324,3 +439,7 @@ function getDebugParam(): string | null {
 }
 
 export default App;
+
+function getInitialWindowLabel(): string {
+  return isTauri() ? getCurrentWindow().label : "main";
+}

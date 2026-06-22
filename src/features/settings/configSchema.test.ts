@@ -11,6 +11,7 @@ describe("validateOrbitConfig", () => {
       launchAtLogin: false,
       silentStart: false,
     });
+    expect(defaultOrbitConfig.trigger.shortcut).toBe("Alt+Space");
     expect(defaultOrbitConfig.uiState.lastAppPickerDir).toBe("C:\\Program Files");
     expect(defaultOrbitConfig.wheel.appearance.material).toBe("acrylic");
     expect(defaultOrbitConfig.wheel.appearance.opacity).toBe(0.9);
@@ -60,5 +61,19 @@ describe("validateOrbitConfig", () => {
     config.wheel.appearance.background.imagePath = null;
 
     expect(() => validateOrbitConfig(config)).toThrow("图片背景路径不能为空");
+  });
+
+  it("接受键盘组合键触发配置", () => {
+    const config = structuredClone(defaultOrbitConfig);
+    config.trigger.shortcut = "Ctrl+Shift+K";
+
+    expect(validateOrbitConfig(config).trigger.shortcut).toBe("Ctrl+Shift+K");
+  });
+
+  it("拒绝单键触发配置", () => {
+    const config = structuredClone(defaultOrbitConfig);
+    config.trigger.shortcut = "Space";
+
+    expect(() => validateOrbitConfig(config)).toThrow("请使用 Ctrl、Alt、Shift 或 Win 与另一个按键组合");
   });
 });

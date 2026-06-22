@@ -56,9 +56,26 @@ fn default_app_picker_dir() -> Option<String> {
 #[serde(rename_all = "camelCase")]
 pub struct TriggerConfig {
     pub button: TriggerButton,
+    #[serde(
+        default = "default_trigger_shortcut",
+        deserialize_with = "deserialize_shortcut"
+    )]
+    pub shortcut: String,
     pub hold_ms: u16,
     pub move_threshold_px: u16,
     pub cancel_distance_px: u16,
+}
+
+pub fn default_trigger_shortcut() -> String {
+    "Alt+Space".to_string()
+}
+
+fn deserialize_shortcut<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    Ok(crate::shortcut::normalize_shortcut(&value).unwrap_or(value))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

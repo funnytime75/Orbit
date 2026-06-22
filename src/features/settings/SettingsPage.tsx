@@ -14,6 +14,7 @@ import {
   updateSector,
 } from "./configEditor";
 import type { OrbitConfig } from "./configSchema";
+import { formatShortcut, shortcutFromKeyboardEvent } from "./shortcutRecorder";
 import { getSectorPlacement } from "../wheel/sectorPlacement";
 import { toUserFacingErrorMessage } from "../../shared/errors/userFacingError";
 
@@ -28,7 +29,7 @@ const materialOptions: Array<{
 ];
 
 type SettingsTabId = "apps" | "startup" | "appearance";
-type SettingIconName = "power" | "silent" | "material" | "opacity" | "blur" | "image";
+type SettingIconName = "power" | "silent" | "trigger" | "material" | "opacity" | "blur" | "image";
 type SettingIconTone = "orange" | "green" | "violet" | "cyan" | "neutral";
 type StatusTone = "info" | "success" | "warning" | "error";
 
@@ -83,6 +84,8 @@ export function SettingsPage({
   onExecuteSector,
 }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<SettingsTabId>("apps");
+  const [isRecordingShortcut, setIsRecordingShortcut] = useState(false);
+  const [shortcutError, setShortcutError] = useState<string | null>(null);
   const mainMenu = draftConfig.menus[0];
   const savedSectorIds = new Set(savedConfig.menus[0].sectors.map((sector) => sector.id));
   const activeTabMeta = settingsTabs.find((tab) => tab.id === activeTab) ?? settingsTabs[0];
@@ -488,6 +491,30 @@ export function SettingsPage({
             </div>
 
             <div className="settings-list" aria-label="后台行为设置">
+              <SettingRow icon="trigger" tone="cyan" title="主触发方式" description="长按鼠标中键，拖向目标方向后松开执行">
+                <span className="setting-row__badge">中键长按</span>
+              </SettingRow>
+
+              <SettingRow icon="trigger" tone="neutral" title="辅助快捷键" description="使用组合键打开轮盘，避免单键误触">
+                <ShortcutRecorder
+                  error={shortcutError}
+                  isRecording={isRecordingShortcut}
+                  shortcut={draftConfig.trigger.shortcut}
+                  onChange={(shortcut) => {
+                    setShortcutError(null);
+                    onDraftChange({
+                      ...draftConfig,
+                      trigger: {
+                        ...draftConfig.trigger,
+                        shortcut,
+                      },
+                    });
+                  }}
+                  onError={setShortcutError}
+                  onRecordingChange={setIsRecordingShortcut}
+                />
+              </SettingRow>
+
               <SettingRow icon="power" tone="orange" title="开机自启" description="系统登录后自动启动 Orbit">
                 <SwitchControl
                   checked={draftConfig.startup.launchAtLogin}
@@ -634,6 +661,77 @@ function SwitchControl({ checked, label, onChange }: SwitchControlProps) {
   );
 }
 
+interface ShortcutRecorderProps {
+  error: string | null;
+  isRecording: boolean;
+  shortcut: string;
+  onChange: (shortcut: string) => void;
+  onError: (error: string | null) => void;
+  onRecordingChange: (recording: boolean) => void;
+}
+
+function ShortcutRecorder({
+  error,
+  isRecording,
+  shortcut,
+  onChange,
+  onError,
+  onRecordingChange,
+}: ShortcutRecorderProps) {
+  function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    if (!isRecording) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (event.key === "Escape") {
+      onError(null);
+      onRecordingChange(false);
+      return;
+    }
+
+    const nextShortcut = shortcutFromKeyboardEvent(event.nativeEvent);
+    if (!nextShortcut) {
+      onError("请使用 Ctrl、Alt、Shift 或 Win 与另一个按键组合");
+      return;
+    }
+
+    onChange(nextShortcut);
+    onRecordingChange(false);
+  }
+
+  return (
+    <div className="shortcut-recorder">
+      <button
+        aria-describedby={error ? "trigger-shortcut-error" : undefined}
+        aria-invalid={error ? true : undefined}
+        className={isRecording ? "shortcut-recorder__button shortcut-recorder__button--recording" : "shortcut-recorder__button"}
+        type="button"
+        onBlur={() => {
+          if (isRecording) {
+            onRecordingChange(false);
+          }
+        }}
+        onClick={() => {
+          onError(null);
+          onRecordingChange(true);
+        }}
+        onKeyDown={handleKeyDown}
+      >
+        <span>{isRecording ? "按下组合键" : formatShortcut(shortcut)}</span>
+        <small>{isRecording ? "Esc 取消" : "点击录制"}</small>
+      </button>
+      {error ? (
+        <small className="field-error shortcut-recorder__error" id="trigger-shortcut-error">
+          {error}
+        </small>
+      ) : null}
+    </div>
+  );
+}
+
 interface SettingIconProps {
   name: SettingIconName;
   tone: SettingIconTone;
@@ -661,6 +759,16 @@ function renderSettingIcon(name: SettingIconName): ReactNode {
         <svg viewBox="0 0 24 24" focusable="false">
           <path d="M5 9h3l4-4v14l-4-4H5z" />
           <path d="m4 4 16 16" />
+        </svg>
+      );
+    case "trigger":
+      return (
+        <svg viewBox="0 0 24 24" focusable="false">
+          <path d="M5 8h14" />
+          <path d="M7 8v8" />
+          <path d="M17 8v8" />
+          <path d="M9 16h6" />
+          <path d="M12 12h.01" />
         </svg>
       );
     case "material":

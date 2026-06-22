@@ -15,6 +15,10 @@ pub enum OrbitError {
     State(String),
     #[error("开机自启同步失败：{0}")]
     Autostart(String),
+    #[error("触发快捷键同步失败：{0}")]
+    Shortcut(String),
+    #[error("鼠标触发监听失败：{0}")]
+    MouseHook(String),
 }
 
 #[derive(Debug, Serialize)]
@@ -55,6 +59,16 @@ impl From<OrbitError> for CommandError {
             OrbitError::Autostart(detail) => Self {
                 code: "AUTOSTART_FAILED",
                 message: "开机自启同步失败".to_string(),
+                detail,
+            },
+            OrbitError::Shortcut(detail) => Self {
+                code: "SHORTCUT_FAILED",
+                message: "触发快捷键同步失败".to_string(),
+                detail,
+            },
+            OrbitError::MouseHook(detail) => Self {
+                code: "MOUSE_HOOK_FAILED",
+                message: "鼠标触发监听失败".to_string(),
                 detail,
             },
         }

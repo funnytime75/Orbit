@@ -1,5 +1,6 @@
 use crate::config::model::{ActionConfig, IconConfig, OrbitConfig, WheelBackgroundType};
 use crate::error::OrbitError;
+use crate::shortcut::normalize_shortcut;
 use std::path::Path;
 
 pub fn validate_config(config: &OrbitConfig) -> Result<(), OrbitError> {
@@ -7,6 +8,7 @@ pub fn validate_config(config: &OrbitConfig) -> Result<(), OrbitError> {
         return Err(invalid("仅支持版本 1 的配置"));
     }
 
+    validate_trigger_shortcut(&config.trigger.shortcut)?;
     validate_range(config.trigger.hold_ms, 120, 600, "trigger.holdMs")?;
     validate_range(
         config.trigger.move_threshold_px,
@@ -111,6 +113,16 @@ fn validate_hex_color(value: &str, path: &'static str) -> Result<(), OrbitError>
     let hex = color.strip_prefix('#').unwrap_or("");
     if hex.len() != 6 || !hex.chars().all(|item| item.is_ascii_hexdigit()) {
         return Err(invalid(format!("{path} 必须是 #RRGGBB 格式")));
+    }
+
+    Ok(())
+}
+
+fn validate_trigger_shortcut(value: &str) -> Result<(), OrbitError> {
+    if normalize_shortcut(value).is_none() {
+        return Err(invalid(
+            "trigger.shortcut 必须使用 Ctrl、Alt、Shift 或 Win 与另一个按键组合",
+        ));
     }
 
     Ok(())
@@ -222,6 +234,24 @@ mod tests {
         let error = validate_config(&config).expect_err("应该拒绝无效 ID");
 
         assert!(error.to_string().contains("只能包含小写字母"));
+    }
+
+    #[test]
+    fn accepts_keyboard_shortcut_trigger() {
+        let mut config = default_config();
+        config.trigger.shortcut = "Ctrl+Shift+K".to_string();
+
+        assert!(validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn rejects_single_key_trigger_shortcut() {
+        let mut config = default_config();
+        config.trigger.shortcut = "Space".to_string();
+
+        let error = validate_config(&config).expect_err("应该拒绝单键触发");
+
+        assert!(error.to_string().contains("trigger.shortcut"));
     }
 
     #[test]
