@@ -1,4 +1,5 @@
 mod action;
+mod app_icon;
 mod config;
 mod error;
 mod mouse_trigger;
@@ -6,6 +7,7 @@ mod shortcut;
 mod state;
 
 use action::execute_action as run_action;
+use app_icon::load_app_icon_data_url;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use config::model::{ActionConfig, OrbitConfig};
 use config::repository::{default_config, load_or_create_config, save_config as save_config_file};
@@ -13,9 +15,9 @@ use config::validation::validate_config as validate_orbit_config;
 use error::{CommandError, CommandResult, OrbitError};
 use mouse_trigger::{start_mouse_trigger, stop_mouse_trigger};
 use shortcut::sync_trigger_shortcut;
+use state::{AppState, RuntimeStatus};
 use std::fs;
 use std::path::Path;
-use state::{AppState, RuntimeStatus};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::Color;
@@ -75,7 +77,8 @@ pub fn run() {
             validate_config,
             get_runtime_status,
             execute_action,
-            load_background_image
+            load_background_image,
+            load_app_icon
         ])
         .run(tauri::generate_context!())
         .expect("启动 Orbit 失败");
@@ -174,6 +177,11 @@ fn load_background_image(image_path: String) -> CommandResult<String> {
     let encoded = BASE64_STANDARD.encode(bytes);
 
     Ok(format!("data:{mime};base64,{encoded}"))
+}
+
+#[tauri::command]
+fn load_app_icon(program: String) -> CommandResult<Option<String>> {
+    load_app_icon_data_url(&program).map_err(CommandError::from)
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, OrbitError> {
@@ -312,6 +320,9 @@ mod tests {
     fn rejects_background_image_with_mismatched_signature() {
         let bytes = b"not really a png";
 
-        assert_eq!(infer_background_image_mime("C:\\Wallpapers\\orbit.png", bytes), None);
+        assert_eq!(
+            infer_background_image_mime("C:\\Wallpapers\\orbit.png", bytes),
+            None
+        );
     }
 }

@@ -36,6 +36,24 @@ export function getActiveSectorIndex(
   return getSectorIndex(getAngleDeg(center, cursor), sectorCount, startAngleDeg);
 }
 
+export function getDirectionalSectorIndex(
+  center: Point,
+  cursor: Point,
+  sectorCount: number,
+  startAngleDeg: number,
+  moveThresholdPx: number,
+): number | null {
+  if (!Number.isInteger(sectorCount) || sectorCount <= 0) {
+    return null;
+  }
+
+  if (getDistance(center, cursor) < Math.max(0, moveThresholdPx)) {
+    return null;
+  }
+
+  return getSectorIndex(getAngleDeg(center, cursor), sectorCount, startAngleDeg);
+}
+
 export function getValidSectorIndex(index: number | null, sectorCount: number): number | null {
   if (index === null || !Number.isInteger(index) || index < 0 || index >= sectorCount) {
     return null;

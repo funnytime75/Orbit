@@ -1,16 +1,26 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { drawWheel } from "./wheelRenderer";
-import { getActiveSectorIndex, getValidSectorIndex, type Point } from "./wheelGeometry";
+import { getActiveSectorIndex, getDirectionalSectorIndex, getValidSectorIndex, type Point } from "./wheelGeometry";
 import type { WheelConfig, WheelMenu } from "./wheelTypes";
 import { getSectorPlacement } from "./sectorPlacement";
 import { loadBackgroundImage } from "../../shared/ipc/commands";
 
+type DirectionalTrigger = {
+  enabled: boolean;
+  quickLaunch: boolean;
+  moveThresholdPx: number;
+  token: number;
+};
+
 interface WheelCanvasProps {
   describedBy?: string;
+  directionalTrigger?: DirectionalTrigger;
   focusToken?: number;
   menu: WheelMenu;
   onBackgroundImageStatusChange?: (status: { imagePath: string; status: "failed" | "loaded" }) => void;
+  onActiveSectorChange?: (sectorId: string | null) => void;
+  onCancel?: () => void;
   onSelectSector?: (sectorId: string) => void;
   previewSectorIndex?: number | null;
   renderMode?: "preview" | "runtime";
@@ -20,9 +30,12 @@ interface WheelCanvasProps {
 
 export function WheelCanvas({
   describedBy,
+  directionalTrigger,
   focusToken,
   menu,
   onBackgroundImageStatusChange,
+  onActiveSectorChange,
+  onCancel,
   onSelectSector,
   previewSectorIndex = null,
   renderMode = "preview",
@@ -32,10 +45,28 @@ export function WheelCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cursorRef = useRef({ x: wheel.sizePx / 2, y: wheel.sizePx / 2 });
   const activeIndexRef = useRef<number | null>(null);
+  const directionalLaunchTokenRef = useRef<number | null>(null);
   const [activeSectorIndex, setActiveSectorIndex] = useState<number | null>(null);
   const [backgroundImage, setBackgroundImage] = useState<HTMLImageElement | null>(null);
+  const [iconImages, setIconImages] = useState<Map<string, HTMLImageElement>>(new Map());
   const isRuntimeSession = renderMode === "runtime" && runtimeCursor !== null;
   const isInteractive = renderMode !== "runtime" || !isRuntimeSession;
+  const directionalTriggerEnabled = directionalTrigger?.enabled === true;
+  const directionalQuickLaunch = directionalTrigger?.quickLaunch === true;
+  const directionalTriggerMoveThresholdPx = directionalTrigger?.moveThresholdPx ?? 0;
+  const directionalTriggerToken = directionalTrigger?.token ?? 0;
+  const imageIconSectors = useMemo(
+    () => {
+      const sectors: Array<{ id: string; source: string }> = [];
+      for (const sector of menu.sectors) {
+        if (sector.icon.type === "image") {
+          sectors.push({ id: sector.id, source: sector.icon.source });
+        }
+      }
+      return sectors;
+    },
+    [menu.sectors],
+  );
 
   useEffect(() => {
     if (focusToken === undefined || !isInteractive) {
@@ -44,6 +75,15 @@ export function WheelCanvas({
 
     canvasRef.current?.focus();
   }, [focusToken, isInteractive]);
+
+  useEffect(() => {
+    if (!directionalTriggerEnabled) {
+      return;
+    }
+
+    directionalLaunchTokenRef.current = directionalTriggerToken;
+    resetCursorToCenter();
+  }, [directionalTriggerEnabled, directionalTriggerToken, wheel.sizePx]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -59,21 +99,27 @@ export function WheelCanvas({
         canvas,
         center,
         cursor: cursorRef.current,
+        iconImages,
         menu,
         renderMode,
         backgroundImage,
         wheel,
       });
+      if (directionalTriggerEnabled && directionalQuickLaunch && directionalLaunchTokenRef.current === null) {
+        animationId = window.requestAnimationFrame(render);
+        return;
+      }
       if (activeIndexRef.current !== activeIndex) {
         activeIndexRef.current = activeIndex;
         setActiveSectorIndex(activeIndex);
+        onActiveSectorChange?.(getSectorId(activeIndex, menu));
       }
       animationId = window.requestAnimationFrame(render);
     };
 
     animationId = window.requestAnimationFrame(render);
     return () => window.cancelAnimationFrame(animationId);
-  }, [backgroundImage, menu, renderMode, wheel]);
+  }, [backgroundImage, directionalQuickLaunch, directionalTriggerEnabled, iconImages, menu, onActiveSectorChange, renderMode, wheel]);
 
   useEffect(() => {
     const background = wheel.appearance.background;
@@ -127,6 +173,48 @@ export function WheelCanvas({
   }, [onBackgroundImageStatusChange, wheel.appearance.background.imagePath, wheel.appearance.background.type]);
 
   useEffect(() => {
+    if (imageIconSectors.length === 0) {
+      setIconImages(new Map());
+      return;
+    }
+
+    let disposed = false;
+    const nextImages = new Map<string, HTMLImageElement>();
+    const images: HTMLImageElement[] = [];
+
+    for (const sector of imageIconSectors) {
+      const image = new Image();
+      images.push(image);
+      image.decoding = "async";
+      image.onload = () => {
+        if (disposed) {
+          return;
+        }
+
+        nextImages.set(sector.id, image);
+        setIconImages(new Map(nextImages));
+      };
+      image.onerror = () => {
+        if (disposed) {
+          return;
+        }
+
+        nextImages.delete(sector.id);
+        setIconImages(new Map(nextImages));
+      };
+      image.src = sector.source;
+    }
+
+    return () => {
+      disposed = true;
+      for (const image of images) {
+        image.onload = null;
+        image.onerror = null;
+      }
+    };
+  }, [imageIconSectors]);
+
+  useEffect(() => {
     if (previewSectorIndex === null || previewSectorIndex < 0 || previewSectorIndex >= menu.sectors.length) {
       return;
     }
@@ -152,10 +240,32 @@ export function WheelCanvas({
     cursorRef.current = { x: wheel.sizePx / 2, y: wheel.sizePx / 2 };
   }, [menu.sectors.length, wheel.sizePx]);
 
+  function resetCursorToCenter() {
+    cursorRef.current = { x: wheel.sizePx / 2, y: wheel.sizePx / 2 };
+    activeIndexRef.current = null;
+    setActiveSectorIndex(null);
+    onActiveSectorChange?.(null);
+  }
+
   function previewSector(index: number) {
     cursorRef.current = getSectorPreviewPoint(index, menu.sectors.length, wheel);
     activeIndexRef.current = index;
     setActiveSectorIndex(index);
+    onActiveSectorChange?.(getSectorId(index, menu));
+  }
+
+  function getSectorIndexAtPoint(point: Point): number | null {
+    const center = { x: wheel.sizePx / 2, y: wheel.sizePx / 2 };
+    const selectedIndex = getActiveSectorIndex(center, point, menu.sectors.length, wheel.startAngleDeg, wheel.innerRadiusPx);
+    return getValidSectorIndex(selectedIndex, menu.sectors.length);
+  }
+
+  function previewSectorAtPoint(point: Point): number | null {
+    const selectedIndex = getSectorIndexAtPoint(point);
+    activeIndexRef.current = selectedIndex;
+    setActiveSectorIndex(selectedIndex);
+    onActiveSectorChange?.(getSectorId(selectedIndex, menu));
+    return selectedIndex;
   }
 
   function handleKeyboardPreview(event: React.KeyboardEvent<HTMLCanvasElement>) {
@@ -201,6 +311,7 @@ export function WheelCanvas({
   function selectActiveSector() {
     const selectedIndex = getValidSectorIndex(activeIndexRef.current, menu.sectors.length);
     if (selectedIndex === null) {
+      onCancel?.();
       return;
     }
 
@@ -208,15 +319,48 @@ export function WheelCanvas({
   }
 
   function selectSectorAtPoint(point: Point) {
+    const safeSelectedIndex = previewSectorAtPoint(point);
+    if (safeSelectedIndex === null) {
+      onCancel?.();
+      return;
+    }
+
+    cursorRef.current = getSectorPreviewPoint(safeSelectedIndex, menu.sectors.length, wheel);
+    activeIndexRef.current = safeSelectedIndex;
+    setActiveSectorIndex(safeSelectedIndex);
+    onSelectSector?.(menu.sectors[safeSelectedIndex].id);
+  }
+
+  function previewOrSelectSectorByDirection(point: Point) {
+    if (!directionalTriggerEnabled || !directionalQuickLaunch) {
+      return;
+    }
+
     const center = { x: wheel.sizePx / 2, y: wheel.sizePx / 2 };
-    const selectedIndex = getActiveSectorIndex(center, point, menu.sectors.length, wheel.startAngleDeg, wheel.innerRadiusPx);
+    const selectedIndex = getDirectionalSectorIndex(
+      center,
+      point,
+      menu.sectors.length,
+      wheel.startAngleDeg,
+      directionalTriggerMoveThresholdPx,
+    );
     const safeSelectedIndex = getValidSectorIndex(selectedIndex, menu.sectors.length);
     if (safeSelectedIndex === null) {
+      activeIndexRef.current = null;
+      setActiveSectorIndex(null);
+      onActiveSectorChange?.(null);
       return;
     }
 
     activeIndexRef.current = safeSelectedIndex;
     setActiveSectorIndex(safeSelectedIndex);
+    onActiveSectorChange?.(getSectorId(safeSelectedIndex, menu));
+
+    if (directionalLaunchTokenRef.current !== directionalTriggerToken) {
+      return;
+    }
+
+    directionalLaunchTokenRef.current = null;
     onSelectSector?.(menu.sectors[safeSelectedIndex].id);
   }
 
@@ -265,7 +409,14 @@ export function WheelCanvas({
             return;
           }
 
-          cursorRef.current = getCanvasPoint(event);
+          const point = getCanvasPoint(event);
+          cursorRef.current = point;
+          if (directionalQuickLaunch) {
+            previewOrSelectSectorByDirection(point);
+            return;
+          }
+
+          previewSectorAtPoint(point);
         }}
       />
       <p className="sr-only" aria-live="polite">
@@ -286,4 +437,12 @@ function getSectorPreviewPoint(index: number, sectorCount: number, wheel: WheelC
     x: center.x + Math.cos(angle) * radius,
     y: center.y + Math.sin(angle) * radius,
   };
+}
+
+function getSectorId(index: number | null, menu: WheelMenu): string | null {
+  if (index === null || index < 0 || index >= menu.sectors.length) {
+    return null;
+  }
+
+  return menu.sectors[index]?.id ?? null;
 }

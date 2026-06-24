@@ -32,6 +32,10 @@ export async function loadBackgroundImage(imagePath: string): Promise<string> {
   return invoke<string>("load_background_image", { imagePath });
 }
 
+export async function loadAppIcon(program: string): Promise<string | null> {
+  return invoke<string | null>("load_app_icon", { program });
+}
+
 export async function getRuntimeStatus(): Promise<RuntimeStatus> {
   return invoke<RuntimeStatus>("get_runtime_status");
 }

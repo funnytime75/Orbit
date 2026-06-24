@@ -21,6 +21,8 @@ pub enum OrbitError {
     MouseHook(String),
     #[error("背景图片读取失败：{0}")]
     BackgroundImage(String),
+    #[error("应用图标读取失败：{0}")]
+    AppIcon(String),
 }
 
 #[derive(Debug, Serialize)]
@@ -76,6 +78,11 @@ impl From<OrbitError> for CommandError {
             OrbitError::BackgroundImage(detail) => Self {
                 code: "BACKGROUND_IMAGE_FAILED",
                 message: "背景图片读取失败".to_string(),
+                detail,
+            },
+            OrbitError::AppIcon(detail) => Self {
+                code: "APP_ICON_FAILED",
+                message: "应用图标读取失败".to_string(),
                 detail,
             },
         }

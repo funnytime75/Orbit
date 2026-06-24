@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ConfigPreview } from "../features/settings/ConfigPreview";
 import { SettingsPage, type SettingsStatus } from "../features/settings/SettingsPage";
 import { defaultOrbitConfig, type OrbitConfig } from "../features/settings/configSchema";
+import { getIconFallback } from "../features/settings/configEditor";
 import { WheelCanvas } from "../features/wheel/WheelCanvas";
 import { getSectorPlacement } from "../features/wheel/sectorPlacement";
 import { executeAction, getRuntimeStatus, loadConfig, saveConfig, type RuntimeStatus } from "../shared/ipc/commands";
 import { orbitEvents } from "../shared/ipc/events";
 import { toUserFacingErrorMessage } from "../shared/errors/userFacingError";
+import { runShortcutSelectedAction } from "./shortcutAction";
+import { getShortcutReleaseAction } from "./shortcutRelease";
 
 const CONFIG_PREVIEW_STORAGE_KEY = "orbit:show-config-preview";
 
@@ -195,104 +198,192 @@ function App() {
   const mainMenu = draftConfig.menus[0];
   const runtimeLabel = getRuntimeLabel(runtimeStatus);
   const wheelDescriptionId = "wheel-preview-description";
+  const appTheme = resolveAppTheme(draftConfig.wheel.theme);
 
   if (windowLabel === "wheel") {
     return <WheelWindow />;
   }
 
   return (
-    <main className="app-shell">
-      <header className="app-header">
-        <div>
-          <p className="eyebrow">Orbit</p>
-          <h1>鼠标轮盘启动器</h1>
-          <p className="app-subtitle">管理主轮盘里的 Windows 应用，保存后用于快速启动。</p>
+    <main className="app-shell" data-theme={appTheme}>
+      <aside className="app-rail" aria-label="主导航">
+        <div className="app-brand" aria-label="Orbit">
+          <span>ORBIT</span>
         </div>
-        <div className="runtime-pill">{runtimeLabel}</div>
-      </header>
+        <nav className="app-nav" aria-label="设置导航">
+          <a className="app-nav__item app-nav__item--active" href="#settings-title" aria-current="page">
+            <NavIcon name="home" />
+            <span>首页</span>
+          </a>
+          <a className="app-nav__item" href="#settings-title">
+            <NavIcon name="preset" />
+            <span>预设管理</span>
+          </a>
+        </nav>
+        <div className="app-rail__footer">
+          <a className="app-nav__item" href="#settings-title">
+            <NavIcon name="settings" />
+            <span>设置</span>
+          </a>
+        </div>
+      </aside>
 
-      <section className="workspace">
-        <aside className="wheel-column">
-          <div className="wheel-preview" style={{ ["--wheel-size" as string]: `${draftConfig.wheel.sizePx}px` }}>
-            <WheelCanvas
-              describedBy={wheelDescriptionId}
-              menu={mainMenu}
-              onBackgroundImageStatusChange={handleBackgroundImageStatusChange}
-              previewSectorIndex={previewSectorIndex}
-              wheel={draftConfig.wheel}
-            />
+      <div className="app-main">
+        <header className="app-header">
+          <div>
+            <h1>鼠标轮盘启动器</h1>
+            <p className="app-subtitle">管理鼠标轮盘的 Windows 应用、触发手感和外观配置。</p>
           </div>
-          <WheelSemanticSummary descriptionId={wheelDescriptionId} menu={mainMenu} startAngleDeg={draftConfig.wheel.startAngleDeg} />
-          {runtimeStatus?.lastActionError ? (
-            <div className="status-banner status-banner--error" role="alert" aria-live="assertive">
-              <span>
-                <strong>运行时错误</strong>
-                <small>{runtimeStatus.lastActionError}</small>
-              </span>
-              <div className="status-banner__actions" aria-label="运行时错误恢复操作">
-                {lastFailedSectorId ? (
-                  <button className="button button--secondary button--compact" type="button" onClick={() => void handleExecuteSector(lastFailedSectorId)}>
-                    重试运行
-                  </button>
-                ) : null}
-                <button
-                  className="button button--secondary button--compact"
-                  type="button"
-                  onClick={() => void refreshRuntimeStatus({ clearResolvedRuntimeError: true })}
-                >
-                  刷新状态
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </aside>
+          <div className="runtime-pill">{runtimeLabel}</div>
+        </header>
 
-        <div className="workspace__side">
-          <SettingsPage
-            draftConfig={draftConfig}
-            failedBackgroundImagePath={failedBackgroundImagePath}
-            isDirty={isDirty}
-            isSaving={isSaving}
-            lastFailedSectorId={lastFailedSectorId}
-            savedConfig={savedConfig}
-            status={status}
-            onDraftChange={setDraftConfig}
-            onExecuteSector={handleExecuteSector}
-            onFailedBackgroundImagePathChange={setFailedBackgroundImagePath}
-            onPreviewSectorChange={setPreviewSectorIndex}
-            onResolveRuntimeError={() => setLastFailedSectorId(null)}
-            onResetDefault={handleResetDefault}
-            onRevert={handleRevert}
-            onSave={handleSave}
-            onStatusChange={setStatus}
-          />
-          {isConfigPreviewAvailable ? (
-            <div className="debug-tools">
-              <div className="debug-tools__toolbar">
-                <button className="button button--secondary" type="button" onClick={handleToggleConfigPreview}>
-                  {isConfigPreviewVisible ? "隐藏调试信息" : "显示调试信息"}
-                </button>
+        <section className="workspace">
+          <aside className="wheel-column">
+            <div className="wheel-preview-card">
+              <div className="section-heading section-heading--compact">
+                <span>预览</span>
+                <h2>轮盘可视化</h2>
               </div>
-              {isConfigPreviewVisible ? <ConfigPreview config={draftConfig} /> : null}
+              <div className="wheel-preview" style={{ ["--wheel-size" as string]: `${draftConfig.wheel.sizePx}px` }}>
+                <WheelCanvas
+                  describedBy={wheelDescriptionId}
+                  menu={mainMenu}
+                  onBackgroundImageStatusChange={handleBackgroundImageStatusChange}
+                  previewSectorIndex={previewSectorIndex}
+                  wheel={draftConfig.wheel}
+                />
+              </div>
             </div>
-          ) : null}
-        </div>
-      </section>
+            <WheelSemanticSummary descriptionId={wheelDescriptionId} menu={mainMenu} startAngleDeg={draftConfig.wheel.startAngleDeg} />
+            {runtimeStatus?.lastActionError ? (
+              <div className="status-banner status-banner--error" role="alert" aria-live="assertive">
+                <span>
+                  <strong>运行时错误</strong>
+                  <small>{runtimeStatus.lastActionError}</small>
+                </span>
+                <div className="status-banner__actions" aria-label="运行时错误恢复操作">
+                  {lastFailedSectorId ? (
+                    <button className="button button--secondary button--compact" type="button" onClick={() => void handleExecuteSector(lastFailedSectorId)}>
+                      重试运行
+                    </button>
+                  ) : null}
+                  <button
+                    className="button button--secondary button--compact"
+                    type="button"
+                    onClick={() => void refreshRuntimeStatus({ clearResolvedRuntimeError: true })}
+                  >
+                    刷新状态
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </aside>
+
+          <div className="workspace__side">
+            <SettingsPage
+              draftConfig={draftConfig}
+              failedBackgroundImagePath={failedBackgroundImagePath}
+              isDirty={isDirty}
+              isSaving={isSaving}
+              lastFailedSectorId={lastFailedSectorId}
+              savedConfig={savedConfig}
+              status={status}
+              onDraftChange={setDraftConfig}
+              onExecuteSector={handleExecuteSector}
+              onFailedBackgroundImagePathChange={setFailedBackgroundImagePath}
+              onPreviewSectorChange={setPreviewSectorIndex}
+              onResolveRuntimeError={() => setLastFailedSectorId(null)}
+              onResetDefault={handleResetDefault}
+              onRevert={handleRevert}
+              onSave={handleSave}
+              onStatusChange={setStatus}
+            />
+            {isConfigPreviewAvailable ? (
+              <div className="debug-tools">
+                <div className="debug-tools__toolbar">
+                  <button className="button button--secondary" type="button" onClick={handleToggleConfigPreview}>
+                    {isConfigPreviewVisible ? "隐藏调试信息" : "显示调试信息"}
+                  </button>
+                </div>
+                {isConfigPreviewVisible ? <ConfigPreview config={draftConfig} /> : null}
+              </div>
+            ) : null}
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
 
+function NavIcon({ name }: { name: "home" | "preset" | "settings" }) {
+  switch (name) {
+    case "home":
+      return (
+        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+          <path d="M4 11.5 12 4l8 7.5" />
+          <path d="M6.5 10v9h11v-9" />
+          <path d="M10 19v-5h4v5" />
+        </svg>
+      );
+    case "preset":
+      return (
+        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+          <path d="M8 7h8" />
+          <path d="M7 12h10" />
+          <path d="M9 17h6" />
+          <path d="M5 5h2v2H5z" />
+          <path d="M17 5h2v2h-2z" />
+          <path d="M5 17h2v2H5z" />
+          <path d="M17 17h2v2h-2z" />
+        </svg>
+      );
+    case "settings":
+      return (
+        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+          <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" />
+          <path d="M4 12h2" />
+          <path d="M18 12h2" />
+          <path d="M12 4v2" />
+          <path d="M12 18v2" />
+          <path d="m6.6 6.6 1.4 1.4" />
+          <path d="m16 16 1.4 1.4" />
+          <path d="m17.4 6.6-1.4 1.4" />
+          <path d="m8 16-1.4 1.4" />
+        </svg>
+      );
+  }
+}
+
+function resolveAppTheme(theme: OrbitConfig["wheel"]["theme"]): "dark" | "light" {
+  if (theme === "light" || theme === "dark") {
+    return theme;
+  }
+
+  if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches) {
+    return "light";
+  }
+
+  return "dark";
+}
 function WheelWindow() {
   const [config, setConfig] = useState<OrbitConfig>(defaultOrbitConfig);
   const [runtimeCursor, setRuntimeCursor] = useState<{ x: number; y: number } | null>(null);
   const [isMouseSessionActive, setIsMouseSessionActive] = useState(false);
   const [shortcutFocusToken, setShortcutFocusToken] = useState(0);
+  const [shortcutSessionToken, setShortcutSessionToken] = useState(0);
+  const isMouseSessionActiveRef = useRef(false);
+  const isShortcutSessionActiveRef = useRef(false);
+  const shortcutTriggeredRef = useRef(false);
+  const activeShortcutSectorIdRef = useRef<string | null>(null);
+  const configRef = useRef(defaultOrbitConfig);
 
   async function loadWheelConfig() {
     try {
       const loadedConfig = await loadConfig();
+      configRef.current = loadedConfig;
       setConfig(loadedConfig);
     } catch {
+      configRef.current = defaultOrbitConfig;
       setConfig(defaultOrbitConfig);
     }
   }
@@ -313,10 +404,12 @@ function WheelWindow() {
       try {
         const loadedConfig = await loadConfig();
         if (!disposed) {
+          configRef.current = loadedConfig;
           setConfig(loadedConfig);
         }
       } catch {
         if (!disposed) {
+          configRef.current = defaultOrbitConfig;
           setConfig(defaultOrbitConfig);
         }
       }
@@ -329,14 +422,21 @@ function WheelWindow() {
   }, []);
 
   useEffect(() => {
+    configRef.current = config;
+  }, [config]);
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && isTauri()) {
-        void getCurrentWindow().hide();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelShortcutSession();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, []);
 
   useEffect(() => {
@@ -347,12 +447,23 @@ function WheelWindow() {
     const unlisteners = [
       listen(orbitEvents.wheelShortcutOpen, () => {
         void loadWheelConfig();
+        isMouseSessionActiveRef.current = false;
+        isShortcutSessionActiveRef.current = true;
+        shortcutTriggeredRef.current = false;
+        activeShortcutSectorIdRef.current = null;
         setIsMouseSessionActive(false);
         setRuntimeCursor(null);
         setShortcutFocusToken((current) => current + 1);
+        setShortcutSessionToken((current) => current + 1);
+      }),
+      listen(orbitEvents.wheelShortcutRelease, () => {
+        releaseShortcutSession();
       }),
       listen<WheelSessionPayload>(orbitEvents.wheelStart, (event) => {
         void loadWheelConfig();
+        isMouseSessionActiveRef.current = true;
+        shortcutTriggeredRef.current = false;
+        activeShortcutSectorIdRef.current = null;
         setIsMouseSessionActive(true);
         setRuntimeCursor(toWheelPoint(event.payload));
       }),
@@ -360,6 +471,7 @@ function WheelWindow() {
         setRuntimeCursor(toWheelPoint(event.payload));
       }),
       listen<WheelSessionPayload>(orbitEvents.wheelEnd, () => {
+        isMouseSessionActiveRef.current = false;
         setIsMouseSessionActive(false);
         setRuntimeCursor(null);
       }),
@@ -370,31 +482,88 @@ function WheelWindow() {
     };
   }, []);
 
-  async function handleShortcutSectorSelect(sectorId: string) {
-    if (isMouseSessionActive) {
-      return;
+  async function hideWheelWindow() {
+    if (isTauri()) {
+      await getCurrentWindow().hide();
     }
+  }
 
-    const sector = config.menus[0].sectors.find((item) => item.id === sectorId);
-    if (!sector) {
-      return;
-    }
+  function releaseShortcutSession() {
+    const action = getShortcutReleaseAction({
+      directionalQuickLaunch: configRef.current.trigger.directionalQuickLaunch,
+      hasTriggered: shortcutTriggeredRef.current,
+      isMouseSessionActive: isMouseSessionActiveRef.current,
+      isShortcutSessionActive: isShortcutSessionActiveRef.current,
+    });
 
-    try {
-      await executeAction(sector.action);
-    } finally {
-      if (isTauri()) {
-        await getCurrentWindow().hide();
+    if (action === "confirm-selection") {
+      isShortcutSessionActiveRef.current = false;
+      const activeSectorId = activeShortcutSectorIdRef.current;
+      if (activeSectorId) {
+        handleShortcutSectorSelect(activeSectorId);
+        return;
       }
+
+      cancelShortcutSession();
+      return;
     }
+
+    if (action === "cancel-session") {
+      cancelShortcutSession();
+    }
+  }
+
+  function cancelShortcutSession() {
+    if (shortcutTriggeredRef.current) {
+      return;
+    }
+
+    shortcutTriggeredRef.current = true;
+    isShortcutSessionActiveRef.current = false;
+    activeShortcutSectorIdRef.current = null;
+    void hideWheelWindow();
+  }
+
+  function handleShortcutCancel() {
+    if (isMouseSessionActiveRef.current || shortcutTriggeredRef.current) {
+      return;
+    }
+
+    cancelShortcutSession();
+  }
+
+  function handleShortcutSectorSelect(sectorId: string) {
+    if (isMouseSessionActiveRef.current || shortcutTriggeredRef.current) {
+      return;
+    }
+
+    shortcutTriggeredRef.current = true;
+    isShortcutSessionActiveRef.current = false;
+    activeShortcutSectorIdRef.current = null;
+    const sector = configRef.current.menus[0].sectors.find((item) => item.id === sectorId);
+    runShortcutSelectedAction({
+      executeAction,
+      hideWheelWindow,
+      sector,
+    });
   }
 
   return (
     <main className="wheel-window-shell" aria-label="Orbit 轮盘">
       <WheelCanvas
         focusToken={shortcutFocusToken}
+        directionalTrigger={{
+          enabled: !isMouseSessionActive,
+          quickLaunch: config.trigger.directionalQuickLaunch,
+          moveThresholdPx: config.trigger.moveThresholdPx,
+          token: shortcutSessionToken,
+        }}
         menu={config.menus[0]}
-        onSelectSector={(sectorId) => void handleShortcutSectorSelect(sectorId)}
+        onActiveSectorChange={(sectorId) => {
+          activeShortcutSectorIdRef.current = sectorId;
+        }}
+        onCancel={handleShortcutCancel}
+        onSelectSector={handleShortcutSectorSelect}
         renderMode="runtime"
         runtimeCursor={isMouseSessionActive ? runtimeCursor : null}
         wheel={config.wheel}
@@ -441,7 +610,7 @@ function WheelSemanticSummary({
 
           return (
             <li className="wheel-summary__item" key={sector.id} aria-label={`${placement.accessibleLabel}，${sector.label}`}>
-              <strong>{sector.icon.value}</strong>
+              <strong>{getIconFallback(sector.icon)}</strong>
               <span>{sector.label}</span>
               <small>{placement.compactLabel}</small>
             </li>

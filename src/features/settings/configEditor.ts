@@ -1,9 +1,10 @@
-import type { OrbitConfig } from "./configSchema";
+import type { OrbitConfig, OrbitIcon } from "./configSchema";
 
 export const MIN_SECTOR_COUNT = 2;
 export const MAX_SECTOR_COUNT = 12;
 
 export interface AppSelection {
+  icon?: OrbitIcon;
   path: string;
 }
 
@@ -18,15 +19,27 @@ export function createSectorFromApp(selection: AppSelection, existingIds: string
   return {
     id: uniqueId(baseId, existingIds),
     label,
-    icon: {
-      type: "text",
-      value: createTextIcon(label),
-    },
+    icon: selection.icon ?? createTextIconConfig(label),
     action: {
       type: "app",
       program: selection.path,
       args: [],
     },
+  };
+}
+
+export function getIconFallback(icon: OrbitIcon): string {
+  return icon.type === "image" ? icon.fallback : icon.value;
+}
+
+export function updateIconFallback(icon: OrbitIcon, fallback: string): OrbitIcon {
+  return icon.type === "image" ? { ...icon, fallback } : { type: "text", value: fallback };
+}
+
+export function createTextIconConfig(label: string): OrbitIcon {
+  return {
+    type: "text",
+    value: createTextIcon(label),
   };
 }
 

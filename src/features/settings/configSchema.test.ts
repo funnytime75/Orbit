@@ -12,6 +12,7 @@ describe("validateOrbitConfig", () => {
       silentStart: false,
     });
     expect(defaultOrbitConfig.trigger.shortcut).toBe("Alt+Space");
+    expect(defaultOrbitConfig.trigger.directionalQuickLaunch).toBe(false);
     expect(defaultOrbitConfig.uiState.lastAppPickerDir).toBe("C:\\Program Files");
     expect(defaultOrbitConfig.wheel.appearance.material).toBe("acrylic");
     expect(defaultOrbitConfig.wheel.appearance.opacity).toBe(0.9);
@@ -38,6 +39,32 @@ describe("validateOrbitConfig", () => {
     };
 
     expect(() => validateOrbitConfig(config)).toThrow("首版只支持 Windows .exe 应用");
+  });
+
+  it("接受 PNG data URL 应用图标", () => {
+    const config = structuredClone(defaultOrbitConfig);
+    config.menus[0].sectors[0].icon = {
+      type: "image",
+      source: "data:image/png;base64,aGVsbG8=",
+      fallback: "C",
+    };
+
+    expect(validateOrbitConfig(config).menus[0].sectors[0].icon).toEqual({
+      type: "image",
+      source: "data:image/png;base64,aGVsbG8=",
+      fallback: "C",
+    });
+  });
+
+  it("拒绝非 PNG data URL 应用图标", () => {
+    const config = structuredClone(defaultOrbitConfig);
+    config.menus[0].sectors[0].icon = {
+      type: "image",
+      source: "data:image/jpeg;base64,aGVsbG8=",
+      fallback: "C",
+    };
+
+    expect(() => validateOrbitConfig(config)).toThrow("应用图标必须是 PNG data URL");
   });
 
   it("拒绝轮盘内半径大于外半径", () => {

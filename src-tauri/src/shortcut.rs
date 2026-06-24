@@ -1,23 +1,86 @@
 use crate::error::OrbitError;
 use crate::make_wheel_window_transparent;
-use tauri::{AppHandle, Emitter, Manager};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use windows_sys::Win32::Foundation::POINT;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, VIRTUAL_KEY, VK_0, VK_1, VK_2, VK_3, VK_4, VK_5, VK_6, VK_7, VK_8, VK_9,
+    VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_F10, VK_F11, VK_F12,
+    VK_F13, VK_F14, VK_F15, VK_F16, VK_F17, VK_F18, VK_F19, VK_F2, VK_F20, VK_F21, VK_F22, VK_F23,
+    VK_F24, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_HOME, VK_INSERT, VK_LEFT, VK_LWIN,
+    VK_MENU, VK_NEXT, VK_OEM_1, VK_OEM_2, VK_OEM_3, VK_OEM_4, VK_OEM_5, VK_OEM_6, VK_OEM_7,
+    VK_OEM_COMMA, VK_OEM_MINUS, VK_OEM_PERIOD, VK_OEM_PLUS, VK_PRIOR, VK_RETURN, VK_RIGHT, VK_RWIN,
+    VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
+};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetCursorPos, GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN,
+};
+
+static SHORTCUT_WATCH_TOKEN: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy, Debug)]
+enum WatchKey {
+    Single(VIRTUAL_KEY),
+    Either(VIRTUAL_KEY, VIRTUAL_KEY),
+}
 
 pub fn sync_trigger_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), OrbitError> {
-    let shortcut = parse_shortcut(shortcut)?;
+    let shortcut_keys = parse_shortcut_keys(shortcut)?;
+    let shortcut = Shortcut::new(
+        Some(shortcut_keys.modifiers),
+        shortcut_keys.code.expect("已检查主按键"),
+    );
     let manager = app.global_shortcut();
     manager
         .unregister_all()
         .map_err(|error| OrbitError::Shortcut(format!("清理旧快捷键失败：{error}")))?;
     manager
-        .on_shortcut(shortcut, |app, _, event| {
-            if event.state() == ShortcutState::Pressed {
+        .on_shortcut(shortcut, move |app, _, event| match event.state() {
+            ShortcutState::Pressed => {
                 let _ = show_wheel_window(app);
+                start_shortcut_release_watcher(app.clone(), shortcut_keys.watch_keys.clone());
+            }
+            ShortcutState::Released => {
+                if !shortcut_keys
+                    .watch_keys
+                    .iter()
+                    .all(|key| is_watch_key_down(*key))
+                {
+                    let _ = release_wheel_selection(app);
+                }
             }
         })
         .map_err(|error| OrbitError::Shortcut(format!("注册触发快捷键失败：{error}")))?;
 
     Ok(())
+}
+
+fn start_shortcut_release_watcher(app: AppHandle, watch_keys: Vec<WatchKey>) {
+    let token = SHORTCUT_WATCH_TOKEN.fetch_add(1, Ordering::SeqCst) + 1;
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(60));
+        while SHORTCUT_WATCH_TOKEN.load(Ordering::SeqCst) == token {
+            if !watch_keys.iter().all(|key| is_watch_key_down(*key)) {
+                let _ = release_wheel_selection(&app);
+                return;
+            }
+
+            std::thread::sleep(Duration::from_millis(16));
+        }
+    });
+}
+
+fn is_watch_key_down(key: WatchKey) -> bool {
+    match key {
+        WatchKey::Single(key) => is_virtual_key_down(key),
+        WatchKey::Either(left, right) => is_virtual_key_down(left) || is_virtual_key_down(right),
+    }
+}
+
+fn is_virtual_key_down(key: VIRTUAL_KEY) -> bool {
+    unsafe { GetAsyncKeyState(i32::from(key)) < 0 }
 }
 
 pub fn normalize_shortcut(value: &str) -> Option<String> {
@@ -61,6 +124,11 @@ pub fn normalize_shortcut(value: &str) -> Option<String> {
 fn show_wheel_window(app: &AppHandle) -> Result<(), tauri::Error> {
     if let Some(window) = app.get_webview_window("wheel") {
         make_wheel_window_transparent(&window);
+        if let Some(size) = wheel_size(app) {
+            let position = centered_window_position(size);
+            window.set_size(LogicalSize::new(f64::from(size), f64::from(size)))?;
+            window.set_position(LogicalPosition::new(position.x, position.y))?;
+        }
         window.show()?;
         window.set_focus()?;
         let _ = window.emit("orbit:wheel:shortcut-open", ());
@@ -69,7 +137,75 @@ fn show_wheel_window(app: &AppHandle) -> Result<(), tauri::Error> {
     Ok(())
 }
 
-fn parse_shortcut(value: &str) -> Result<Shortcut, OrbitError> {
+fn wheel_size(app: &AppHandle) -> Option<u16> {
+    let state = app.try_state::<crate::state::AppState>()?;
+    state.config.read().ok().map(|config| config.wheel.size_px)
+}
+
+fn centered_window_position(wheel_size_px: u16) -> WindowPosition {
+    let size = i32::from(wheel_size_px);
+    let cursor = cursor_position().unwrap_or_else(|| WindowPosition {
+        x: size / 2,
+        y: size / 2,
+    });
+    let max_x = unsafe { GetSystemMetrics(SM_CXSCREEN) }.saturating_sub(size);
+    let max_y = unsafe { GetSystemMetrics(SM_CYSCREEN) }.saturating_sub(size);
+
+    WindowPosition {
+        x: (cursor.x - size / 2).clamp(0, max_x.max(0)),
+        y: (cursor.y - size / 2).clamp(0, max_y.max(0)),
+    }
+}
+
+fn cursor_position() -> Option<WindowPosition> {
+    let mut point = POINT { x: 0, y: 0 };
+    let ok = unsafe { GetCursorPos(&mut point) };
+    if ok == 0 {
+        return None;
+    }
+
+    Some(WindowPosition {
+        x: point.x,
+        y: point.y,
+    })
+}
+
+struct WindowPosition {
+    x: i32,
+    y: i32,
+}
+
+fn release_wheel_selection(app: &AppHandle) -> Result<(), tauri::Error> {
+    if let Some(window) = app.get_webview_window("wheel") {
+        let release_token = SHORTCUT_WATCH_TOKEN.load(Ordering::SeqCst);
+        let _ = window.emit("orbit:wheel:shortcut-release", ());
+        schedule_shortcut_release_hide(app.clone(), release_token);
+    }
+
+    Ok(())
+}
+
+fn schedule_shortcut_release_hide(app: AppHandle, release_token: u64) {
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(120));
+        if SHORTCUT_WATCH_TOKEN.load(Ordering::SeqCst) != release_token {
+            return;
+        }
+
+        if let Some(window) = app.get_webview_window("wheel") {
+            let _ = window.hide();
+        }
+    });
+}
+
+#[derive(Clone, Debug)]
+struct ShortcutKeys {
+    modifiers: Modifiers,
+    code: Option<Code>,
+    watch_keys: Vec<WatchKey>,
+}
+
+fn parse_shortcut_keys(value: &str) -> Result<ShortcutKeys, OrbitError> {
     let Some(value) = normalize_shortcut(value) else {
         return Err(OrbitError::Shortcut(
             "触发快捷键必须使用 Ctrl、Alt、Shift 或 Win 与另一个按键组合".to_string(),
@@ -77,14 +213,16 @@ fn parse_shortcut(value: &str) -> Result<Shortcut, OrbitError> {
     };
     let mut modifiers = Modifiers::empty();
     let mut code = None;
+    let mut watch_keys = Vec::new();
 
     for part in value
         .split('+')
         .map(str::trim)
         .filter(|part| !part.is_empty())
     {
-        if let Some(modifier) = parse_modifier(part) {
+        if let Some((modifier, virtual_key)) = parse_modifier(part) {
             modifiers |= modifier;
+            watch_keys.push(virtual_key);
             continue;
         }
 
@@ -94,6 +232,7 @@ fn parse_shortcut(value: &str) -> Result<Shortcut, OrbitError> {
             ));
         }
         code = Some(parse_code(part)?);
+        watch_keys.push(parse_virtual_key(part)?);
     }
 
     if modifiers.is_empty() || code.is_none() {
@@ -102,7 +241,11 @@ fn parse_shortcut(value: &str) -> Result<Shortcut, OrbitError> {
         ));
     }
 
-    Ok(Shortcut::new(Some(modifiers), code.expect("已检查主按键")))
+    Ok(ShortcutKeys {
+        modifiers,
+        code,
+        watch_keys,
+    })
 }
 
 fn normalize_modifier(value: &str) -> Option<&'static str> {
@@ -115,12 +258,14 @@ fn normalize_modifier(value: &str) -> Option<&'static str> {
     }
 }
 
-fn parse_modifier(value: &str) -> Option<Modifiers> {
+fn parse_modifier(value: &str) -> Option<(Modifiers, WatchKey)> {
     match value.to_ascii_lowercase().as_str() {
-        "ctrl" | "control" => Some(Modifiers::CONTROL),
-        "alt" => Some(Modifiers::ALT),
-        "shift" => Some(Modifiers::SHIFT),
-        "win" | "meta" | "cmd" | "command" | "super" => Some(Modifiers::SUPER),
+        "ctrl" | "control" => Some((Modifiers::CONTROL, WatchKey::Single(VK_CONTROL))),
+        "alt" => Some((Modifiers::ALT, WatchKey::Single(VK_MENU))),
+        "shift" => Some((Modifiers::SHIFT, WatchKey::Single(VK_SHIFT))),
+        "win" | "meta" | "cmd" | "command" | "super" => {
+            Some((Modifiers::SUPER, WatchKey::Either(VK_LWIN, VK_RWIN)))
+        }
         _ => None,
     }
 }
@@ -315,6 +460,65 @@ fn parse_code(value: &str) -> Result<Code, OrbitError> {
     }
 }
 
+fn parse_virtual_key(value: &str) -> Result<WatchKey, OrbitError> {
+    let upper = value.to_ascii_uppercase();
+    if upper.len() == 1 {
+        let character = upper.as_bytes()[0] as char;
+        if character.is_ascii_alphabetic() {
+            return Ok(WatchKey::Single((character as u16) as VIRTUAL_KEY));
+        }
+
+        if character.is_ascii_digit() {
+            return Ok(WatchKey::Single(match character {
+                '0' => VK_0,
+                '1' => VK_1,
+                '2' => VK_2,
+                '3' => VK_3,
+                '4' => VK_4,
+                '5' => VK_5,
+                '6' => VK_6,
+                '7' => VK_7,
+                '8' => VK_8,
+                '9' => VK_9,
+                _ => unreachable!("已检查 ASCII 数字"),
+            }));
+        }
+    }
+
+    let virtual_key = match value {
+        "ArrowDown" => VK_DOWN,
+        "ArrowLeft" => VK_LEFT,
+        "ArrowRight" => VK_RIGHT,
+        "ArrowUp" => VK_UP,
+        "Backquote" => VK_OEM_3,
+        "Backslash" => VK_OEM_5,
+        "Backspace" => VK_BACK,
+        "BracketLeft" => VK_OEM_4,
+        "BracketRight" => VK_OEM_6,
+        "Comma" => VK_OEM_COMMA,
+        "Delete" => VK_DELETE,
+        "End" => VK_END,
+        "Enter" => VK_RETURN,
+        "Equal" => VK_OEM_PLUS,
+        "Escape" => VK_ESCAPE,
+        "Home" => VK_HOME,
+        "Insert" => VK_INSERT,
+        "Minus" => VK_OEM_MINUS,
+        "PageDown" => VK_NEXT,
+        "PageUp" => VK_PRIOR,
+        "Period" => VK_OEM_PERIOD,
+        "Quote" => VK_OEM_7,
+        "Semicolon" => VK_OEM_1,
+        "Slash" => VK_OEM_2,
+        "Space" => VK_SPACE,
+        "Tab" => VK_TAB,
+        _ if upper.starts_with('F') => parse_function_virtual_key(&upper)?,
+        _ => return Err(OrbitError::Shortcut(format!("不支持的触发按键：{value}"))),
+    };
+
+    Ok(WatchKey::Single(virtual_key))
+}
+
 fn parse_function_key(value: &str) -> Result<Code, OrbitError> {
     match value {
         "F1" => Ok(Code::F1),
@@ -345,20 +549,57 @@ fn parse_function_key(value: &str) -> Result<Code, OrbitError> {
     }
 }
 
+fn parse_function_virtual_key(value: &str) -> Result<VIRTUAL_KEY, OrbitError> {
+    match value {
+        "F1" => Ok(VK_F1),
+        "F2" => Ok(VK_F2),
+        "F3" => Ok(VK_F3),
+        "F4" => Ok(VK_F4),
+        "F5" => Ok(VK_F5),
+        "F6" => Ok(VK_F6),
+        "F7" => Ok(VK_F7),
+        "F8" => Ok(VK_F8),
+        "F9" => Ok(VK_F9),
+        "F10" => Ok(VK_F10),
+        "F11" => Ok(VK_F11),
+        "F12" => Ok(VK_F12),
+        "F13" => Ok(VK_F13),
+        "F14" => Ok(VK_F14),
+        "F15" => Ok(VK_F15),
+        "F16" => Ok(VK_F16),
+        "F17" => Ok(VK_F17),
+        "F18" => Ok(VK_F18),
+        "F19" => Ok(VK_F19),
+        "F20" => Ok(VK_F20),
+        "F21" => Ok(VK_F21),
+        "F22" => Ok(VK_F22),
+        "F23" => Ok(VK_F23),
+        "F24" => Ok(VK_F24),
+        _ => Err(OrbitError::Shortcut(format!("不支持的功能键：{value}"))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::normalize_shortcut;
-    use super::parse_shortcut;
+    use super::parse_shortcut_keys;
 
     #[test]
     fn accepts_modifier_combo() {
-        assert!(parse_shortcut("Ctrl+Shift+K").is_ok());
-        assert!(parse_shortcut("Alt+Space").is_ok());
+        assert!(parse_shortcut_keys("Ctrl+Shift+K").is_ok());
+        assert!(parse_shortcut_keys("Alt+Space").is_ok());
+    }
+
+    #[test]
+    fn parses_release_watch_keys_for_shortcut() {
+        let keys = super::parse_shortcut_keys("Alt+Space").expect("应该解析快捷键");
+
+        assert_eq!(keys.watch_keys.len(), 2);
     }
 
     #[test]
     fn rejects_single_key() {
-        let error = parse_shortcut("Space").expect_err("应该拒绝单键");
+        let error = parse_shortcut_keys("Space").expect_err("应该拒绝单键");
 
         assert!(error.to_string().contains("触发快捷键"));
     }

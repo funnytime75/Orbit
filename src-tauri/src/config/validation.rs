@@ -3,6 +3,9 @@ use crate::error::OrbitError;
 use crate::shortcut::normalize_shortcut;
 use std::path::Path;
 
+const MAX_ICON_SOURCE_CHARS: usize = 256_000;
+const PNG_ICON_DATA_URL_PREFIX: &str = "data:image/png;base64,";
+
 pub fn validate_config(config: &OrbitConfig) -> Result<(), OrbitError> {
     if config.version != 1 {
         return Err(invalid("仅支持版本 1 的配置"));
@@ -165,11 +168,28 @@ fn validate_label(value: &str, path: String) -> Result<(), OrbitError> {
 
 fn validate_icon(icon: &IconConfig, path: String) -> Result<(), OrbitError> {
     match icon {
-        IconConfig::Text { value } if value.trim().is_empty() || value.chars().count() > 4 => {
-            Err(invalid(format!("{path}.value 必须为 1 到 4 个字符")))
+        IconConfig::Text { value } => validate_icon_text(value, format!("{path}.value")),
+        IconConfig::Image { source, fallback } => {
+            validate_icon_text(fallback, format!("{path}.fallback"))?;
+            if !source.starts_with(PNG_ICON_DATA_URL_PREFIX)
+                || source.len() > MAX_ICON_SOURCE_CHARS
+                || source[PNG_ICON_DATA_URL_PREFIX.len()..].trim().is_empty()
+            {
+                return Err(invalid(format!(
+                    "{path}.source 必须是有效且不超过 256KB 的 PNG data URL"
+                )));
+            }
+            Ok(())
         }
-        IconConfig::Text { .. } => Ok(()),
     }
+}
+
+fn validate_icon_text(value: &str, path: String) -> Result<(), OrbitError> {
+    if value.trim().is_empty() || value.chars().count() > 4 {
+        return Err(invalid(format!("{path} 必须为 1 到 4 个字符")));
+    }
+
+    Ok(())
 }
 
 fn validate_action(action: &ActionConfig, path: String) -> Result<(), OrbitError> {
@@ -219,6 +239,7 @@ fn invalid(message: impl Into<String>) -> OrbitError {
 #[cfg(test)]
 mod tests {
     use super::validate_config;
+    use crate::config::model::IconConfig;
     use crate::config::repository::default_config;
 
     #[test]
@@ -306,7 +327,8 @@ mod tests {
 
         let mut config = default_config();
         config.wheel.appearance.background.background_type = WheelBackgroundType::Image;
-        config.wheel.appearance.background.image_path = Some("C:\\Wallpapers\\orbit.gif".to_string());
+        config.wheel.appearance.background.image_path =
+            Some("C:\\Wallpapers\\orbit.gif".to_string());
 
         let error = validate_config(&config).expect_err("应该拒绝不支持的图片格式");
 
@@ -319,7 +341,8 @@ mod tests {
 
         let mut config = default_config();
         config.wheel.appearance.background.background_type = WheelBackgroundType::Image;
-        config.wheel.appearance.background.image_path = Some("C:\\Wallpapers\\orbit.webp".to_string());
+        config.wheel.appearance.background.image_path =
+            Some("C:\\Wallpapers\\orbit.webp".to_string());
 
         assert!(validate_config(&config).is_ok());
     }
@@ -346,5 +369,29 @@ mod tests {
         let error = validate_config(&config).expect_err("应该拒绝非 exe 应用路径");
 
         assert!(error.to_string().contains(".exe"));
+    }
+
+    #[test]
+    fn accepts_image_icon_data_url() {
+        let mut config = default_config();
+        config.menus[0].sectors[0].icon = IconConfig::Image {
+            source: "data:image/png;base64,aGVsbG8=".to_string(),
+            fallback: "C".to_string(),
+        };
+
+        assert!(validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn rejects_invalid_image_icon_source() {
+        let mut config = default_config();
+        config.menus[0].sectors[0].icon = IconConfig::Image {
+            source: "data:image/jpeg;base64,aGVsbG8=".to_string(),
+            fallback: "C".to_string(),
+        };
+
+        let error = validate_config(&config).expect_err("应该拒绝非 PNG 图标");
+
+        assert!(error.to_string().contains("PNG data URL"));
     }
 }

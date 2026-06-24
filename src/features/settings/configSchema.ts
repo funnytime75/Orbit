@@ -5,10 +5,23 @@ const idSchema = z
   .string()
   .regex(/^[a-z0-9_-]+$/, "ID 只能包含小写字母、数字、短横线和下划线");
 
-const iconSchema = z.object({
-  type: z.literal("text"),
-  value: z.string().min(1, "图标不能为空").max(4, "文本图标最多 4 个字符"),
-});
+const textIconValueSchema = z.string().min(1, "图标不能为空").max(4, "文本图标最多 4 个字符");
+const pngDataUrlSchema = z
+  .string()
+  .startsWith("data:image/png;base64,", "应用图标必须是 PNG data URL")
+  .max(256_000, "应用图标不能超过 256KB");
+
+const iconSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("text"),
+    value: textIconValueSchema,
+  }),
+  z.object({
+    type: z.literal("image"),
+    source: pngDataUrlSchema,
+    fallback: textIconValueSchema,
+  }),
+]);
 
 const actionSchema = z.discriminatedUnion("type", [
   z.object({
@@ -121,6 +134,7 @@ export const orbitConfigSchema = z
       holdMs: z.number().int().min(120, "长按时间不能小于 120ms").max(600, "长按时间不能大于 600ms"),
       moveThresholdPx: z.number().int().min(8, "移动阈值不能小于 8px").max(60, "移动阈值不能大于 60px"),
       cancelDistancePx: z.number().int().min(0, "取消距离不能小于 0px").max(120, "取消距离不能大于 120px"),
+      directionalQuickLaunch: z.boolean().default(false),
     }),
     wheel: z.object({
       sizePx: z.number().int().min(240, "轮盘尺寸不能小于 240px").max(720, "轮盘尺寸不能大于 720px"),
@@ -148,6 +162,7 @@ export const orbitConfigSchema = z
 
 export type OrbitConfig = z.infer<typeof orbitConfigSchema>;
 export type OrbitAction = OrbitConfig["menus"][number]["sectors"][number]["action"];
+export type OrbitIcon = OrbitConfig["menus"][number]["sectors"][number]["icon"];
 
 export const defaultOrbitConfig: OrbitConfig = {
   version: 1,
@@ -162,6 +177,7 @@ export const defaultOrbitConfig: OrbitConfig = {
     holdMs: 220,
     moveThresholdPx: 18,
     cancelDistancePx: 14,
+    directionalQuickLaunch: false,
   },
   wheel: {
     sizePx: 360,
@@ -169,7 +185,7 @@ export const defaultOrbitConfig: OrbitConfig = {
     outerRadiusPx: 156,
     startAngleDeg: -90,
     animationMs: 90,
-    theme: "system",
+    theme: "light",
     appearance: {
       material: "acrylic",
       opacity: 0.9,

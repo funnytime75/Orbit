@@ -1,18 +1,28 @@
 import type { Point } from "./wheelGeometry";
 import { getActiveSectorIndex } from "./wheelGeometry";
-import type { WheelConfig, WheelMenu } from "./wheelTypes";
+import type { WheelConfig, WheelMenu, WheelSector } from "./wheelTypes";
 
 interface DrawWheelOptions {
   backgroundImage?: CanvasImageSource | null;
   canvas: HTMLCanvasElement;
   center: Point;
   cursor: Point;
+  iconImages?: ReadonlyMap<string, CanvasImageSource>;
   menu: WheelMenu;
   renderMode?: "preview" | "runtime";
   wheel: WheelConfig;
 }
 
-export function drawWheel({ backgroundImage = null, canvas, center, cursor, menu, renderMode = "preview", wheel }: DrawWheelOptions): number | null {
+export function drawWheel({
+  backgroundImage = null,
+  canvas,
+  center,
+  cursor,
+  iconImages = new Map(),
+  menu,
+  renderMode = "preview",
+  wheel,
+}: DrawWheelOptions): number | null {
   const context = canvas.getContext("2d");
   if (!context) {
     return null;
@@ -59,11 +69,14 @@ export function drawWheel({ backgroundImage = null, canvas, center, cursor, menu
     const labelX = center.x + Math.cos(labelAngle) * labelRadius;
     const labelY = center.y + Math.sin(labelAngle) * labelRadius;
 
-    context.fillStyle = index === activeIndex ? "#ffffff" : getReadableTextColor(wheel, renderMode);
-    context.font = "600 14px system-ui";
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.fillText(sector.icon.value, labelX, labelY);
+    drawSectorIdentity(context, {
+      iconImage: iconImages.get(sector.id) ?? null,
+      maxWidth: getSectorTextMaxWidth(sectorAngle, labelRadius),
+      sector,
+      textColor: index === activeIndex ? "#ffffff" : getReadableTextColor(wheel, renderMode),
+      x: labelX,
+      y: labelY,
+    });
   });
 
   context.beginPath();
@@ -79,6 +92,83 @@ export function drawWheel({ backgroundImage = null, canvas, center, cursor, menu
   context.fillText(renderMode === "runtime" ? "取消" : "Orbit", center.x, center.y);
 
   return activeIndex;
+}
+
+interface SectorIdentityOptions {
+  iconImage: CanvasImageSource | null;
+  maxWidth: number;
+  sector: WheelSector;
+  textColor: string;
+  x: number;
+  y: number;
+}
+
+function drawSectorIdentity(context: CanvasRenderingContext2D, { iconImage, maxWidth, sector, textColor, x, y }: SectorIdentityOptions) {
+  context.save();
+  context.fillStyle = textColor;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+
+  const imageDrawn = iconImage ? drawSectorIconImage(context, iconImage, x, y - 11, Math.min(28, maxWidth)) : false;
+  if (!imageDrawn) {
+    context.font = "800 18px system-ui";
+    const iconText = fitCanvasText(getIconFallback(sector.icon), Math.min(34, maxWidth), (value) => context.measureText(value).width);
+    context.fillText(iconText || "?", x, y - 9);
+  }
+
+  context.font = "700 11px system-ui";
+  const labelText = fitCanvasText(sector.label || "应用", maxWidth, (value) => context.measureText(value).width);
+  context.fillText(labelText, x, y + 13);
+  context.restore();
+}
+
+function drawSectorIconImage(context: CanvasRenderingContext2D, image: CanvasImageSource, x: number, y: number, maxSize: number): boolean {
+  const imageSize = getImageSize(image);
+  if (!imageSize) {
+    return false;
+  }
+
+  const scale = Math.min(maxSize / imageSize.width, maxSize / imageSize.height);
+  const drawWidth = imageSize.width * scale;
+  const drawHeight = imageSize.height * scale;
+  context.drawImage(image, x - drawWidth / 2, y - drawHeight / 2, drawWidth, drawHeight);
+  return true;
+}
+
+function getIconFallback(icon: WheelSector["icon"]): string {
+  return icon.type === "image" ? icon.fallback : icon.value;
+}
+
+function getSectorTextMaxWidth(sectorAngle: number, labelRadius: number): number {
+  const chordWidth = 2 * labelRadius * Math.sin(sectorAngle / 2);
+  return Math.max(42, Math.min(92, chordWidth * 0.72));
+}
+
+export function fitCanvasText(text: string, maxWidth: number, measureText: (value: string) => number): string {
+  const normalized = text.trim();
+  if (!normalized || maxWidth <= 0) {
+    return "";
+  }
+
+  if (measureText(normalized) <= maxWidth) {
+    return normalized;
+  }
+
+  const marker = "...";
+  if (measureText(marker) > maxWidth) {
+    return "";
+  }
+
+  let fitted = "";
+  for (const char of Array.from(normalized)) {
+    const next = `${fitted}${char}`;
+    if (measureText(`${next}${marker}`) > maxWidth) {
+      break;
+    }
+    fitted = next;
+  }
+
+  return fitted ? `${fitted}${marker}` : marker;
 }
 
 function drawWheelBackdrop(

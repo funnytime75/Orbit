@@ -20,6 +20,7 @@ pub fn default_config() -> OrbitConfig {
             hold_ms: 220,
             move_threshold_px: 18,
             cancel_distance_px: 14,
+            directional_quick_launch: false,
         },
         wheel: WheelConfig {
             size_px: 360,
@@ -27,7 +28,7 @@ pub fn default_config() -> OrbitConfig {
             outer_radius_px: 156,
             start_angle_deg: -90,
             animation_ms: 90,
-            theme: ThemeMode::System,
+            theme: ThemeMode::Light,
             appearance: default_wheel_appearance(),
         },
         menus: vec![MenuConfig {
@@ -182,11 +183,13 @@ mod tests {
         save_config(&path, &config).expect("应该能保存默认配置");
         let mut saved = fs::read_to_string(&path).expect("应该能读取配置");
         saved = saved.replace("    \"shortcut\": \"Alt+Space\",\n", "");
+        saved = saved.replace("    \"directionalQuickLaunch\": false,\n", "");
         fs::write(&path, saved).expect("应该能写入旧配置");
 
         config = load_or_create_config(&path).expect("旧配置应该能加载");
 
         assert_eq!(config.trigger.shortcut, "Alt+Space");
+        assert!(!config.trigger.directional_quick_launch);
         let _ = fs::remove_file(path);
     }
 

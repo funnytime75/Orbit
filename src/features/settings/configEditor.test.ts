@@ -3,6 +3,7 @@ import { defaultOrbitConfig } from "./configSchema";
 import {
   addSector,
   createSectorFromApp,
+  getIconFallback,
   hasDuplicateApp,
   moveSector,
   moveSectorToIndex,
@@ -16,7 +17,7 @@ describe("configEditor", () => {
     const sector = createSectorFromApp({ path: "C:\\Program Files\\Code\\Code.exe" });
 
     expect(sector.label).toBe("Code");
-    expect(sector.icon.value).toBe("C");
+    expect(getIconFallback(sector.icon)).toBe("C");
     expect(sector.action).toEqual({
       type: "app",
       program: "C:\\Program Files\\Code\\Code.exe",
@@ -50,7 +51,24 @@ describe("configEditor", () => {
     });
 
     expect(config.menus[0].sectors[0].label).toBe("浏览器");
-    expect(config.menus[0].sectors[0].icon.value).toBe("浏");
+    expect(getIconFallback(config.menus[0].sectors[0].icon)).toBe("浏");
+  });
+
+  it("从应用路径生成扇区时保留原生图片图标", () => {
+    const sector = createSectorFromApp({
+      path: "C:\\Program Files\\Code\\Code.exe",
+      icon: {
+        type: "image",
+        source: "data:image/png;base64,aGVsbG8=",
+        fallback: "C",
+      },
+    });
+
+    expect(sector.icon).toEqual({
+      type: "image",
+      source: "data:image/png;base64,aGVsbG8=",
+      fallback: "C",
+    });
   });
 
   it("重新选择应用时保留扇区位置和 ID", () => {

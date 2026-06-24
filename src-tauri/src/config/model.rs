@@ -64,6 +64,8 @@ pub struct TriggerConfig {
     pub hold_ms: u16,
     pub move_threshold_px: u16,
     pub cancel_distance_px: u16,
+    #[serde(default)]
+    pub directional_quick_launch: bool,
 }
 
 pub fn default_trigger_shortcut() -> String {
@@ -188,6 +190,7 @@ pub struct SectorConfig {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum IconConfig {
     Text { value: String },
+    Image { source: String, fallback: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

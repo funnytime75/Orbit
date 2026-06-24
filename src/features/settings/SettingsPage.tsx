@@ -1,9 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   addSector,
   createSectorFromApp,
+  createTextIconConfig,
+  getIconFallback,
   hasDuplicateApp,
   MAX_SECTOR_COUNT,
   MIN_SECTOR_COUNT,
@@ -13,11 +15,14 @@ import {
   rememberAppPickerDir,
   removeSector,
   updateSector,
+  updateIconFallback,
+  type AppSelection,
 } from "./configEditor";
 import type { OrbitConfig } from "./configSchema";
 import { formatShortcut, shortcutFromKeyboardEvent } from "./shortcutRecorder";
 import { getSectorPlacement } from "../wheel/sectorPlacement";
 import { toUserFacingErrorMessage } from "../../shared/errors/userFacingError";
+import { loadAppIcon } from "../../shared/ipc/commands";
 
 const materialOptions: Array<{
   label: string;
@@ -27,6 +32,15 @@ const materialOptions: Array<{
   { label: "亚克力", value: "acrylic" },
   { label: "磨砂", value: "frosted" },
   { label: "不透明", value: "solid" },
+];
+
+const themeOptions: Array<{
+  label: string;
+  value: OrbitConfig["wheel"]["theme"];
+}> = [
+  { label: "跟随系统", value: "system" },
+  { label: "日间", value: "light" },
+  { label: "夜间", value: "dark" },
 ];
 
 const triggerPresetOptions: Array<{
@@ -39,8 +53,8 @@ const triggerPresetOptions: Array<{
 ];
 const backgroundImageExtensions = ["png", "jpg", "jpeg", "webp", "bmp"];
 
-type SettingsTabId = "apps" | "trigger" | "appearance";
-type SettingIconName = "power" | "silent" | "trigger" | "material" | "opacity" | "blur" | "image";
+type SettingsTabId = "apps" | "trigger" | "appearance" | "advanced";
+type SettingIconName = "power" | "silent" | "trigger" | "theme" | "material" | "opacity" | "blur" | "image";
 type SettingIconTone = "orange" | "green" | "violet" | "cyan" | "neutral";
 type StatusTone = "info" | "success" | "warning" | "error";
 type PendingDuplicateAppAction =
@@ -66,9 +80,10 @@ const settingsTabs: Array<{
   panelId: string;
   tabId: string;
 }> = [
-  { id: "apps", label: "应用", panelId: "settings-tabpanel-apps", tabId: "settings-tab-apps" },
+  { id: "apps", label: "轮盘", panelId: "settings-tabpanel-apps", tabId: "settings-tab-apps" },
   { id: "trigger", label: "触发", panelId: "settings-tabpanel-trigger", tabId: "settings-tab-trigger" },
   { id: "appearance", label: "外观", panelId: "settings-tabpanel-appearance", tabId: "settings-tab-appearance" },
+  { id: "advanced", label: "高级设置", panelId: "settings-tabpanel-advanced", tabId: "settings-tab-advanced" },
 ];
 
 interface SettingsPageProps {
@@ -114,6 +129,8 @@ export function SettingsPage({
   const [confirmingResetDefault, setConfirmingResetDefault] = useState(false);
   const [confirmingDeleteSectorId, setConfirmingDeleteSectorId] = useState<string | null>(null);
   const [pendingDuplicateAppAction, setPendingDuplicateAppAction] = useState<PendingDuplicateAppAction | null>(null);
+  const draftConfigRef = useRef(draftConfig);
+  draftConfigRef.current = draftConfig;
   const mainMenu = draftConfig.menus[0];
   const savedSectorIds = new Set(savedConfig.menus[0].sectors.map((sector) => sector.id));
   const activeTabMeta = settingsTabs.find((tab) => tab.id === activeTab) ?? settingsTabs[0];
@@ -167,7 +184,7 @@ export function SettingsPage({
         return;
       }
 
-      applyAddApp(selected);
+      await applyAddApp(selected);
     } catch (error) {
       onStatusChange(
         toErrorStatus(
@@ -214,7 +231,7 @@ export function SettingsPage({
         return;
       }
 
-      applyReplaceApp(sectorId, selected);
+      await applyReplaceApp(sectorId, selected);
     } catch (error) {
       onStatusChange(
         toErrorStatus(
@@ -226,42 +243,74 @@ export function SettingsPage({
     }
   }
 
-  function applyAddApp(path: string) {
-    const existingIds = mainMenu.sectors.map((sector) => sector.id);
+  async function applyAddApp(path: string) {
+    const selection = await createAppSelection(path);
+    const currentConfig = draftConfigRef.current;
+    const existingIds = currentConfig.menus[0].sectors.map((sector) => sector.id);
     const nextConfig = rememberAppPickerDir(
-      addSector(draftConfig, createSectorFromApp({ path }, existingIds)),
+      addSector(currentConfig, createSectorFromApp(selection, existingIds)),
       path,
     );
     commitDraftChange(nextConfig);
     onStatusChange({
       tone: "success",
       message: "已添加应用",
-      detail: "保存后会出现在主轮盘中。",
+      detail: selection.icon?.type === "image" ? "已读取原生图标，保存后会出现在主轮盘中。" : "保存后会出现在主轮盘中。",
     });
   }
 
-  function applyReplaceApp(sectorId: string, path: string) {
-    const nextConfig = rememberAppPickerDir(replaceSectorWithApp(draftConfig, sectorId, { path }), path);
+  async function applyReplaceApp(sectorId: string, path: string) {
+    const selection = await createAppSelection(path);
+    const nextConfig = rememberAppPickerDir(replaceSectorWithApp(draftConfigRef.current, sectorId, selection), path);
     commitDraftChange(nextConfig);
     onResolveRuntimeError();
     onStatusChange({
       tone: "success",
       message: "已重新选择应用",
-      detail: "可先运行验证，保存后会写入主轮盘配置。",
+      detail: selection.icon?.type === "image" ? "已读取原生图标，可先运行验证，保存后会写入主轮盘配置。" : "可先运行验证，保存后会写入主轮盘配置。",
     });
   }
 
-  function handleConfirmDuplicateApp() {
+  async function createAppSelection(path: string): Promise<AppSelection> {
+    const fallback = createTextIconConfig(pathStem(path));
+    if (!isTauri()) {
+      return { path, icon: fallback };
+    }
+
+    try {
+      const source = await loadAppIcon(path);
+      if (!source) {
+        return { path, icon: fallback };
+      }
+
+      return {
+        path,
+        icon: {
+          type: "image",
+          source,
+          fallback: getIconFallback(fallback),
+        },
+      };
+    } catch {
+      return { path, icon: fallback };
+    }
+  }
+
+  async function handleConfirmDuplicateApp() {
     if (!pendingDuplicateAppAction) {
       return;
     }
 
-    if (pendingDuplicateAppAction.type === "add") {
-      applyAddApp(pendingDuplicateAppAction.path);
-      return;
-    }
+    try {
+      if (pendingDuplicateAppAction.type === "add") {
+        await applyAddApp(pendingDuplicateAppAction.path);
+        return;
+      }
 
-    applyReplaceApp(pendingDuplicateAppAction.sectorId, pendingDuplicateAppAction.path);
+      await applyReplaceApp(pendingDuplicateAppAction.sectorId, pendingDuplicateAppAction.path);
+    } catch (error) {
+      onStatusChange(toErrorStatus(error, "重复应用操作失败", "请重新选择 Windows .exe 应用。"));
+    }
   }
 
   function handleCancelDuplicateApp() {
@@ -576,7 +625,8 @@ export function SettingsPage({
               {mainMenu.sectors.map((sector, index) => {
                 const placement = getSectorPlacement(index, mainMenu.sectors.length, draftConfig.wheel.startAngleDeg);
                 const labelError = getSectorLabelError(sector.label);
-                const iconError = getSectorIconError(sector.icon.value);
+                const iconFallback = getIconFallback(sector.icon);
+                const iconError = getSectorIconError(iconFallback);
                 const labelInputId = `sector-${sector.id}-label`;
                 const iconInputId = `sector-${sector.id}-icon`;
                 const labelErrorId = `sector-${sector.id}-label-error`;
@@ -599,7 +649,7 @@ export function SettingsPage({
                   >
                     <div className="sector-editor__marker" aria-hidden="true">
                       <span className="sector-editor__direction">{placement.compactLabel}</span>
-                      <span className="sector-editor__icon">{sector.icon.value || "?"}</span>
+                      <SectorIconPreview icon={sector.icon} />
                     </div>
 
                     <div className="sector-editor__fields">
@@ -629,11 +679,11 @@ export function SettingsPage({
                           aria-invalid={iconError ? true : undefined}
                           id={iconInputId}
                           maxLength={4}
-                          value={sector.icon.value}
+                          value={iconFallback}
                           onChange={(event) =>
                             commitDraftChange(
                               updateSector(draftConfig, sector.id, {
-                                icon: { type: "text", value: event.currentTarget.value },
+                                icon: updateIconFallback(sector.icon, event.currentTarget.value),
                               }),
                             )
                           }
@@ -766,56 +816,6 @@ export function SettingsPage({
                 </div>
               </SettingRow>
 
-              <details className="advanced-settings">
-                <summary>高级手感参数</summary>
-                <div className="settings-list settings-list--nested" aria-label="高级触发手感参数">
-                  <SettingRow icon="trigger" tone="neutral" title="长按时间" description="达到这个时间后才会呼出轮盘">
-                    <div className="range-control">
-                      <input
-                        aria-label="长按时间"
-                        max={600}
-                        min={120}
-                        step={10}
-                        type="range"
-                        value={draftConfig.trigger.holdMs}
-                        onChange={(event) => updateTrigger({ holdMs: Number(event.currentTarget.value) })}
-                      />
-                      <output>{draftConfig.trigger.holdMs}ms</output>
-                    </div>
-                  </SettingRow>
-
-                  <SettingRow icon="trigger" tone="neutral" title="方向阈值" description="手指移动超过这个距离后才开始选择方向">
-                    <div className="range-control">
-                      <input
-                        aria-label="方向阈值"
-                        max={60}
-                        min={8}
-                        step={1}
-                        type="range"
-                        value={draftConfig.trigger.moveThresholdPx}
-                        onChange={(event) => updateTrigger({ moveThresholdPx: Number(event.currentTarget.value) })}
-                      />
-                      <output>{draftConfig.trigger.moveThresholdPx}px</output>
-                    </div>
-                  </SettingRow>
-
-                  <SettingRow icon="trigger" tone="neutral" title="中心取消区" description="松开时仍在中心距离内会取消执行">
-                    <div className="range-control">
-                      <input
-                        aria-label="中心取消区"
-                        max={120}
-                        min={0}
-                        step={1}
-                        type="range"
-                        value={draftConfig.trigger.cancelDistancePx}
-                        onChange={(event) => updateTrigger({ cancelDistancePx: Number(event.currentTarget.value) })}
-                      />
-                      <output>{draftConfig.trigger.cancelDistancePx}px</output>
-                    </div>
-                  </SettingRow>
-                </div>
-              </details>
-
               <SettingRow icon="trigger" tone="neutral" title="辅助快捷键" description="使用组合键打开轮盘，避免单键误触">
                 <ShortcutRecorder
                   error={shortcutError}
@@ -836,46 +836,6 @@ export function SettingsPage({
                 />
               </SettingRow>
             </div>
-
-            <div className="settings-subsection">
-              <div className="section-heading section-heading--compact">
-                <span>启动</span>
-                <h3>系统启动</h3>
-              </div>
-              <div className="settings-list" aria-label="系统启动设置">
-                <SettingRow icon="power" tone="orange" title="开机自启" description="系统登录后自动启动 Orbit">
-                  <SwitchControl
-                    checked={draftConfig.startup.launchAtLogin}
-                    label="开机自启"
-                    onChange={(checked) =>
-                      commitDraftChange({
-                        ...draftConfig,
-                        startup: {
-                          ...draftConfig.startup,
-                          launchAtLogin: checked,
-                        },
-                      })
-                    }
-                  />
-                </SettingRow>
-
-                <SettingRow icon="silent" tone="green" title="静默启动" description="开机自启时不打开设置窗口">
-                  <SwitchControl
-                    checked={draftConfig.startup.silentStart}
-                    label="静默启动"
-                    onChange={(checked) =>
-                      commitDraftChange({
-                        ...draftConfig,
-                        startup: {
-                          ...draftConfig.startup,
-                          silentStart: checked,
-                        },
-                      })
-                    }
-                  />
-                </SettingRow>
-              </div>
-            </div>
           </div>
         ) : null}
 
@@ -888,6 +848,39 @@ export function SettingsPage({
 
             <div className="settings-list" aria-label="轮盘外观设置">
               <div className="settings-subsection settings-subsection--flush">
+                <div className="section-heading section-heading--compact">
+                  <span>界面</span>
+                  <h3>主题</h3>
+                </div>
+                <SettingRow icon="theme" tone="cyan" title="界面主题" description="切换设置窗口的日间、夜间或系统外观">
+                  <div className="segmented-control segmented-control--three" role="group" aria-label="界面主题">
+                    {themeOptions.map((option) => (
+                      <button
+                        className={
+                          draftConfig.wheel.theme === option.value
+                            ? "segmented-control__item segmented-control__item--active"
+                            : "segmented-control__item"
+                        }
+                        key={option.value}
+                        type="button"
+                        onClick={() =>
+                          commitDraftChange({
+                            ...draftConfig,
+                            wheel: {
+                              ...draftConfig.wheel,
+                              theme: option.value,
+                            },
+                          })
+                        }
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </SettingRow>
+              </div>
+
+              <div className="settings-subsection">
                 <div className="section-heading section-heading--compact">
                   <span>基础</span>
                   <h3>材质</h3>
@@ -986,9 +979,85 @@ export function SettingsPage({
                 ) : null}
               </div>
 
-              <details className="advanced-settings">
-                <summary>高级材质参数</summary>
-                <div className="settings-list settings-list--nested" aria-label="高级材质参数">
+            </div>
+          </div>
+        ) : null}
+
+        {activeTab === "advanced" ? (
+          <div className="settings-section settings-section--tab">
+            <div className="section-heading section-heading--compact">
+              <span>高级设置</span>
+              <h3>精细控制</h3>
+            </div>
+
+            <div className="settings-list" aria-label="高级设置">
+              <div className="settings-subsection settings-subsection--flush">
+                <div className="section-heading section-heading--compact">
+                  <span>触发</span>
+                  <h3>手感参数</h3>
+                </div>
+                <div className="settings-list">
+                  <SettingRow icon="trigger" tone="neutral" title="长按时间" description="达到这个时间后才会呼出轮盘">
+                    <div className="range-control">
+                      <input
+                        aria-label="长按时间"
+                        max={600}
+                        min={120}
+                        step={10}
+                        type="range"
+                        value={draftConfig.trigger.holdMs}
+                        onChange={(event) => updateTrigger({ holdMs: Number(event.currentTarget.value) })}
+                      />
+                      <output>{draftConfig.trigger.holdMs}ms</output>
+                    </div>
+                  </SettingRow>
+
+                  <SettingRow icon="trigger" tone="neutral" title="方向阈值" description="手指移动超过这个距离后才开始选择方向">
+                    <div className="range-control">
+                      <input
+                        aria-label="方向阈值"
+                        max={60}
+                        min={8}
+                        step={1}
+                        type="range"
+                        value={draftConfig.trigger.moveThresholdPx}
+                        onChange={(event) => updateTrigger({ moveThresholdPx: Number(event.currentTarget.value) })}
+                      />
+                      <output>{draftConfig.trigger.moveThresholdPx}px</output>
+                    </div>
+                  </SettingRow>
+
+                  <SettingRow icon="trigger" tone="neutral" title="中心取消区" description="松开时仍在中心距离内会取消执行">
+                    <div className="range-control">
+                      <input
+                        aria-label="中心取消区"
+                        max={120}
+                        min={0}
+                        step={1}
+                        type="range"
+                        value={draftConfig.trigger.cancelDistancePx}
+                        onChange={(event) => updateTrigger({ cancelDistancePx: Number(event.currentTarget.value) })}
+                      />
+                      <output>{draftConfig.trigger.cancelDistancePx}px</output>
+                    </div>
+                  </SettingRow>
+
+                  <SettingRow icon="trigger" tone="neutral" title="方向快速启动" description="快捷键呼出时，鼠标移出中心后立即按方向执行">
+                    <SwitchControl
+                      checked={draftConfig.trigger.directionalQuickLaunch}
+                      label="方向快速启动"
+                      onChange={(checked) => updateTrigger({ directionalQuickLaunch: checked })}
+                    />
+                  </SettingRow>
+                </div>
+              </div>
+
+              <div className="settings-subsection">
+                <div className="section-heading section-heading--compact">
+                  <span>材质</span>
+                  <h3>高级参数</h3>
+                </div>
+                <div className="settings-list">
                   <SettingRow icon="opacity" tone="cyan" title="轮盘透明度" description="最低保留 35% 可读性">
                     <div className="range-control">
                       <input
@@ -1026,28 +1095,68 @@ export function SettingsPage({
                     </div>
                   </SettingRow>
                 </div>
+              </div>
+
+              <div className="settings-subsection">
+                <div className="section-heading section-heading--compact">
+                  <span>启动</span>
+                  <h3>系统启动</h3>
+                </div>
+                <div className="settings-list" aria-label="系统启动设置">
+                  <SettingRow icon="power" tone="orange" title="开机自启" description="系统登录后自动启动 Orbit">
+                    <SwitchControl
+                      checked={draftConfig.startup.launchAtLogin}
+                      label="开机自启"
+                      onChange={(checked) =>
+                        commitDraftChange({
+                          ...draftConfig,
+                          startup: {
+                            ...draftConfig.startup,
+                            launchAtLogin: checked,
+                          },
+                        })
+                      }
+                    />
+                  </SettingRow>
+
+                  <SettingRow icon="silent" tone="green" title="静默启动" description="开机自启时不打开设置窗口">
+                    <SwitchControl
+                      checked={draftConfig.startup.silentStart}
+                      label="静默启动"
+                      onChange={(checked) =>
+                        commitDraftChange({
+                          ...draftConfig,
+                          startup: {
+                            ...draftConfig.startup,
+                            silentStart: checked,
+                          },
+                        })
+                      }
+                    />
+                  </SettingRow>
+                </div>
+              </div>
+
+              <details className="advanced-settings advanced-settings--maintenance" onToggle={handleMaintenanceToggle}>
+                <summary>维护操作</summary>
+                <div className="maintenance-row">
+                  <div>
+                    <strong>恢复默认配置</strong>
+                    <small>{confirmingResetDefault ? "再次点击确认。只会覆盖当前草稿，保存后才会生效。" : "用于重新开始配置，不影响已保存配置，直到你点击保存。"}</small>
+                  </div>
+                  <button
+                    className={confirmingResetDefault ? "button button--warning" : "button button--secondary"}
+                    type="button"
+                    onClick={handleResetDefaultClick}
+                    disabled={isSaving}
+                  >
+                    {confirmingResetDefault ? "确认恢复" : "恢复默认"}
+                  </button>
+                </div>
               </details>
             </div>
           </div>
         ) : null}
-
-        <details className="advanced-settings advanced-settings--maintenance" onToggle={handleMaintenanceToggle}>
-          <summary>维护操作</summary>
-          <div className="maintenance-row">
-            <div>
-              <strong>恢复默认配置</strong>
-              <small>{confirmingResetDefault ? "再次点击确认。只会覆盖当前草稿，保存后才会生效。" : "用于重新开始配置，不影响已保存配置，直到你点击保存。"}</small>
-            </div>
-            <button
-              className={confirmingResetDefault ? "button button--warning" : "button button--secondary"}
-              type="button"
-              onClick={handleResetDefaultClick}
-              disabled={isSaving}
-            >
-              {confirmingResetDefault ? "确认恢复" : "恢复默认"}
-            </button>
-          </div>
-        </details>
       </div>
     </section>
   );
@@ -1205,6 +1314,16 @@ function renderSettingIcon(name: SettingIconName): ReactNode {
           <path d="M12 12h.01" />
         </svg>
       );
+    case "theme":
+      return (
+        <svg viewBox="0 0 24 24" focusable="false">
+          <path d="M12 4a8 8 0 1 0 8 8" />
+          <path d="M12 4v16" />
+          <path d="M12 8h5" />
+          <path d="M12 12h7" />
+          <path d="M12 16h5" />
+        </svg>
+      );
     case "material":
       return (
         <svg viewBox="0 0 24 24" focusable="false">
@@ -1250,6 +1369,31 @@ function getSectorLabelError(label: string): string | null {
 
 function getSectorIconError(icon: string): string | null {
   return icon.trim() ? null : "图标不能为空";
+}
+
+function SectorIconPreview({ icon }: { icon: OrbitConfig["menus"][number]["sectors"][number]["icon"] }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const fallback = getIconFallback(icon);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [icon]);
+
+  return (
+    <span className="sector-editor__icon">
+      {icon.type === "image" && !imageFailed ? (
+        <img className="sector-editor__icon-image" src={icon.source} alt="" onError={() => setImageFailed(true)} />
+      ) : (
+        fallback || "?"
+      )}
+    </span>
+  );
+}
+
+function pathStem(path: string): string {
+  const parts = path.replace(/\\/g, "/").split("/");
+  const fileName = parts[parts.length - 1] ?? "应用";
+  return fileName.replace(/\.[^.]+$/, "") || "应用";
 }
 
 function toErrorStatus(error: unknown, message: string, recovery: string): SettingsStatus {
