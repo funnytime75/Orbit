@@ -19,6 +19,8 @@ pub enum OrbitError {
     Shortcut(String),
     #[error("鼠标触发监听失败：{0}")]
     MouseHook(String),
+    #[error("背景图片读取失败：{0}")]
+    BackgroundImage(String),
 }
 
 #[derive(Debug, Serialize)]
@@ -69,6 +71,11 @@ impl From<OrbitError> for CommandError {
             OrbitError::MouseHook(detail) => Self {
                 code: "MOUSE_HOOK_FAILED",
                 message: "鼠标触发监听失败".to_string(),
+                detail,
+            },
+            OrbitError::BackgroundImage(detail) => Self {
+                code: "BACKGROUND_IMAGE_FAILED",
+                message: "背景图片读取失败".to_string(),
                 detail,
             },
         }

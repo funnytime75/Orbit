@@ -28,6 +28,10 @@ export async function executeAction(action: OrbitAction): Promise<void> {
   await invoke("execute_action", { action });
 }
 
+export async function loadBackgroundImage(imagePath: string): Promise<string> {
+  return invoke<string>("load_background_image", { imagePath });
+}
+
 export async function getRuntimeStatus(): Promise<RuntimeStatus> {
   return invoke<RuntimeStatus>("get_runtime_status");
 }

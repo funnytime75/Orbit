@@ -75,16 +75,29 @@ fn validate_appearance(config: &OrbitConfig) -> Result<(), OrbitError> {
     if matches!(
         appearance.background.background_type,
         WheelBackgroundType::Image
-    ) && appearance
-        .background
-        .image_path
-        .as_deref()
-        .is_none_or(|path| path.trim().is_empty())
-    {
-        return Err(invalid("wheel.appearance.background.imagePath 不能为空"));
+    ) {
+        let Some(image_path) = appearance.background.image_path.as_deref() else {
+            return Err(invalid("wheel.appearance.background.imagePath 不能为空"));
+        };
+        let image_path = image_path.trim();
+        if image_path.is_empty() {
+            return Err(invalid("wheel.appearance.background.imagePath 不能为空"));
+        }
+        if !is_supported_background_image_path(image_path) {
+            return Err(invalid(
+                "wheel.appearance.background.imagePath 只支持 png、jpg、jpeg、webp 或 bmp",
+            ));
+        }
     }
 
     Ok(())
+}
+
+fn is_supported_background_image_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    [".png", ".jpg", ".jpeg", ".webp", ".bmp"]
+        .iter()
+        .any(|extension| lower.ends_with(extension))
 }
 
 fn validate_range(value: u16, min: u16, max: u16, path: &'static str) -> Result<(), OrbitError> {
@@ -285,6 +298,30 @@ mod tests {
         let error = validate_config(&config).expect_err("应该拒绝缺少路径的图片背景");
 
         assert!(error.to_string().contains("imagePath"));
+    }
+
+    #[test]
+    fn rejects_unsupported_image_background_extension() {
+        use crate::config::model::WheelBackgroundType;
+
+        let mut config = default_config();
+        config.wheel.appearance.background.background_type = WheelBackgroundType::Image;
+        config.wheel.appearance.background.image_path = Some("C:\\Wallpapers\\orbit.gif".to_string());
+
+        let error = validate_config(&config).expect_err("应该拒绝不支持的图片格式");
+
+        assert!(error.to_string().contains("png、jpg、jpeg、webp 或 bmp"));
+    }
+
+    #[test]
+    fn accepts_supported_image_background_extension() {
+        use crate::config::model::WheelBackgroundType;
+
+        let mut config = default_config();
+        config.wheel.appearance.background.background_type = WheelBackgroundType::Image;
+        config.wheel.appearance.background.image_path = Some("C:\\Wallpapers\\orbit.webp".to_string());
+
+        assert!(validate_config(&config).is_ok());
     }
 
     #[test]

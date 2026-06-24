@@ -5,6 +5,7 @@ import {
   createSectorFromApp,
   hasDuplicateApp,
   moveSector,
+  moveSectorToIndex,
   removeSector,
   replaceSectorWithApp,
   updateSector,
@@ -76,6 +77,14 @@ describe("configEditor", () => {
 
     const movedDown = moveSector(defaultOrbitConfig, "chrome", "down");
     expect(movedDown.menus[0].sectors.map((sector) => sector.id)).toEqual(["vscode", "chrome", "notepad"]);
+  });
+
+  it("支持直接移动到指定位置", () => {
+    const movedToEnd = moveSectorToIndex(defaultOrbitConfig, "chrome", 2);
+    expect(movedToEnd.menus[0].sectors.map((sector) => sector.id)).toEqual(["vscode", "notepad", "chrome"]);
+
+    const movedToStart = moveSectorToIndex(defaultOrbitConfig, "notepad", 0);
+    expect(movedToStart.menus[0].sectors.map((sector) => sector.id)).toEqual(["notepad", "chrome", "vscode"]);
   });
 
   it("达到最大扇区数量后拒绝继续添加", () => {

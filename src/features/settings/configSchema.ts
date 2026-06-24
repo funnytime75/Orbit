@@ -59,6 +59,7 @@ const menuSchema = z.object({
 });
 
 const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "颜色必须是 #RRGGBB 格式");
+const supportedBackgroundImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".bmp"] as const;
 
 const wheelAppearanceSchema = z.object({
   material: z.enum(["transparent", "acrylic", "frosted", "solid"]),
@@ -79,6 +80,14 @@ const wheelAppearanceSchema = z.object({
         context.addIssue({
           code: z.ZodIssueCode.custom,
           message: "图片背景路径不能为空",
+          path: ["imagePath"],
+        });
+      }
+
+      if (background.type === "image" && background.imagePath?.trim() && !hasSupportedBackgroundImageExtension(background.imagePath)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "图片背景只支持 png、jpg、jpeg、webp 或 bmp",
           path: ["imagePath"],
         });
       }
@@ -230,4 +239,9 @@ export const defaultOrbitConfig: OrbitConfig = {
 
 export function validateOrbitConfig(config: unknown): OrbitConfig {
   return orbitConfigSchema.parse(config);
+}
+
+function hasSupportedBackgroundImageExtension(path: string): boolean {
+  const normalizedPath = path.trim().toLowerCase();
+  return supportedBackgroundImageExtensions.some((extension) => normalizedPath.endsWith(extension));
 }

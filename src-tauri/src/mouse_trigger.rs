@@ -19,6 +19,7 @@ mod platform {
     use crate::action::execute_action;
     use crate::config::model::{ActionConfig, OrbitConfig};
     use crate::error::OrbitError;
+    use crate::make_wheel_window_transparent;
 
     static HOOK_HANDLE: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
     static TRIGGER_STATE: OnceLock<Mutex<TriggerState>> = OnceLock::new();
@@ -302,6 +303,7 @@ mod platform {
         let size = f64::from(config.wheel.size_px);
         let position = window_position(session.origin, config.wheel.size_px);
 
+        make_wheel_window_transparent(&window);
         let _ = window.set_size(LogicalSize::new(size, size));
         let _ = window.set_position(LogicalPosition::new(position.x, position.y));
         let _ = window.show();

@@ -27,9 +27,12 @@ function App() {
   const [isConfigPreviewVisible, setIsConfigPreviewVisible] = useState(getInitialConfigPreviewVisibility);
   const [previewSectorIndex, setPreviewSectorIndex] = useState<number | null>(null);
   const [lastFailedSectorId, setLastFailedSectorId] = useState<string | null>(null);
+  const [failedBackgroundImagePath, setFailedBackgroundImagePath] = useState<string | null>(null);
 
   const isDirty = useMemo(() => JSON.stringify(savedConfig) !== JSON.stringify(draftConfig), [savedConfig, draftConfig]);
   const isConfigPreviewAvailable = useMemo(isDebugConfigPreviewAvailable, []);
+  const draftBackgroundType = draftConfig.wheel.appearance.background.type;
+  const draftBackgroundImagePath = draftConfig.wheel.appearance.background.imagePath;
 
   useEffect(() => {
     if (!isTauri()) {
@@ -115,6 +118,7 @@ function App() {
   function handleRevert() {
     setDraftConfig(savedConfig);
     setLastFailedSectorId(null);
+    setFailedBackgroundImagePath(null);
     setStatus({
       tone: "info",
       message: "已撤销未保存更改",
@@ -123,15 +127,12 @@ function App() {
   }
 
   function handleResetDefault() {
-    const confirmed = window.confirm("恢复默认草稿？当前未保存更改会被覆盖。");
-    if (!confirmed) {
-      return;
-    }
     setDraftConfig(defaultOrbitConfig);
     setLastFailedSectorId(null);
+    setFailedBackgroundImagePath(null);
     setStatus({
       tone: "warning",
-      message: "已恢复默认草稿",
+      message: "已恢复默认配置草稿",
       detail: "保存后默认配置才会生效。",
     });
   }
@@ -147,6 +148,27 @@ function App() {
       return next;
     });
   }
+
+  const handleBackgroundImageStatusChange = useCallback(
+    ({ imagePath, status }: { imagePath: string; status: "failed" | "loaded" }) => {
+      if (draftBackgroundType !== "image" || draftBackgroundImagePath !== imagePath) {
+        return;
+      }
+
+      if (status === "loaded") {
+        setFailedBackgroundImagePath(null);
+        return;
+      }
+
+      setFailedBackgroundImagePath(imagePath);
+      setStatus({
+        tone: "warning",
+        message: "背景图片无法读取",
+        detail: "请在外观设置中重新选择或清除这张图片。",
+      });
+    },
+    [draftBackgroundImagePath, draftBackgroundType],
+  );
 
   async function handleExecuteSector(sectorId: string) {
     const sector = draftConfig.menus[0].sectors.find((item) => item.id === sectorId);
@@ -195,6 +217,7 @@ function App() {
             <WheelCanvas
               describedBy={wheelDescriptionId}
               menu={mainMenu}
+              onBackgroundImageStatusChange={handleBackgroundImageStatusChange}
               previewSectorIndex={previewSectorIndex}
               wheel={draftConfig.wheel}
             />
@@ -227,6 +250,7 @@ function App() {
         <div className="workspace__side">
           <SettingsPage
             draftConfig={draftConfig}
+            failedBackgroundImagePath={failedBackgroundImagePath}
             isDirty={isDirty}
             isSaving={isSaving}
             lastFailedSectorId={lastFailedSectorId}
@@ -234,6 +258,7 @@ function App() {
             status={status}
             onDraftChange={setDraftConfig}
             onExecuteSector={handleExecuteSector}
+            onFailedBackgroundImagePathChange={setFailedBackgroundImagePath}
             onPreviewSectorChange={setPreviewSectorIndex}
             onResolveRuntimeError={() => setLastFailedSectorId(null)}
             onResetDefault={handleResetDefault}
@@ -260,6 +285,8 @@ function App() {
 function WheelWindow() {
   const [config, setConfig] = useState<OrbitConfig>(defaultOrbitConfig);
   const [runtimeCursor, setRuntimeCursor] = useState<{ x: number; y: number } | null>(null);
+  const [isMouseSessionActive, setIsMouseSessionActive] = useState(false);
+  const [shortcutFocusToken, setShortcutFocusToken] = useState(0);
 
   async function loadWheelConfig() {
     try {
@@ -318,14 +345,22 @@ function WheelWindow() {
     }
 
     const unlisteners = [
+      listen(orbitEvents.wheelShortcutOpen, () => {
+        void loadWheelConfig();
+        setIsMouseSessionActive(false);
+        setRuntimeCursor(null);
+        setShortcutFocusToken((current) => current + 1);
+      }),
       listen<WheelSessionPayload>(orbitEvents.wheelStart, (event) => {
         void loadWheelConfig();
+        setIsMouseSessionActive(true);
         setRuntimeCursor(toWheelPoint(event.payload));
       }),
       listen<WheelSessionPayload>(orbitEvents.wheelMove, (event) => {
         setRuntimeCursor(toWheelPoint(event.payload));
       }),
       listen<WheelSessionPayload>(orbitEvents.wheelEnd, () => {
+        setIsMouseSessionActive(false);
         setRuntimeCursor(null);
       }),
     ];
@@ -335,9 +370,35 @@ function WheelWindow() {
     };
   }, []);
 
+  async function handleShortcutSectorSelect(sectorId: string) {
+    if (isMouseSessionActive) {
+      return;
+    }
+
+    const sector = config.menus[0].sectors.find((item) => item.id === sectorId);
+    if (!sector) {
+      return;
+    }
+
+    try {
+      await executeAction(sector.action);
+    } finally {
+      if (isTauri()) {
+        await getCurrentWindow().hide();
+      }
+    }
+  }
+
   return (
     <main className="wheel-window-shell" aria-label="Orbit 轮盘">
-      <WheelCanvas menu={config.menus[0]} runtimeCursor={runtimeCursor} wheel={config.wheel} />
+      <WheelCanvas
+        focusToken={shortcutFocusToken}
+        menu={config.menus[0]}
+        onSelectSector={(sectorId) => void handleShortcutSectorSelect(sectorId)}
+        renderMode="runtime"
+        runtimeCursor={isMouseSessionActive ? runtimeCursor : null}
+        wheel={config.wheel}
+      />
     </main>
   );
 }

@@ -98,6 +98,18 @@ export function moveSector(config: OrbitConfig, sectorId: string, direction: "up
   return updateMainSectors(config, sectors);
 }
 
+export function moveSectorToIndex(config: OrbitConfig, sectorId: string, targetIndex: number): OrbitConfig {
+  const sectors = [...getMainSectors(config)];
+  const currentIndex = sectors.findIndex((sector) => sector.id === sectorId);
+  if (currentIndex === -1 || targetIndex < 0 || targetIndex >= sectors.length || currentIndex === targetIndex) {
+    return config;
+  }
+
+  const [sector] = sectors.splice(currentIndex, 1);
+  sectors.splice(targetIndex, 0, sector);
+  return updateMainSectors(config, sectors);
+}
+
 export function hasDuplicateApp(config: OrbitConfig, program: string, ignoreSectorId?: string): boolean {
   return getMainSectors(config).some(
     (sector) =>

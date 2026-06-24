@@ -27,6 +27,8 @@
         "height": 360,
         "decorations": false,
         "transparent": true,
+        "shadow": false,
+        "backgroundColor": "#00000000",
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "visible": false,

@@ -1,5 +1,6 @@
 use crate::error::OrbitError;
-use tauri::{AppHandle, Manager};
+use crate::make_wheel_window_transparent;
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 pub fn sync_trigger_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), OrbitError> {
@@ -59,8 +60,10 @@ pub fn normalize_shortcut(value: &str) -> Option<String> {
 
 fn show_wheel_window(app: &AppHandle) -> Result<(), tauri::Error> {
     if let Some(window) = app.get_webview_window("wheel") {
+        make_wheel_window_transparent(&window);
         window.show()?;
         window.set_focus()?;
+        let _ = window.emit("orbit:wheel:shortcut-open", ());
     }
 
     Ok(())

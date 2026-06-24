@@ -63,6 +63,22 @@ describe("validateOrbitConfig", () => {
     expect(() => validateOrbitConfig(config)).toThrow("图片背景路径不能为空");
   });
 
+  it("拒绝不支持格式的图片背景", () => {
+    const config = structuredClone(defaultOrbitConfig);
+    config.wheel.appearance.background.type = "image";
+    config.wheel.appearance.background.imagePath = "C:\\Wallpapers\\orbit.gif";
+
+    expect(() => validateOrbitConfig(config)).toThrow("图片背景只支持 png、jpg、jpeg、webp 或 bmp");
+  });
+
+  it("接受支持格式的图片背景", () => {
+    const config = structuredClone(defaultOrbitConfig);
+    config.wheel.appearance.background.type = "image";
+    config.wheel.appearance.background.imagePath = "C:\\Wallpapers\\orbit.webp";
+
+    expect(validateOrbitConfig(config).wheel.appearance.background.imagePath).toBe("C:\\Wallpapers\\orbit.webp");
+  });
+
   it("接受键盘组合键触发配置", () => {
     const config = structuredClone(defaultOrbitConfig);
     config.trigger.shortcut = "Ctrl+Shift+K";

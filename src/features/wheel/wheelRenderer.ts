@@ -3,14 +3,16 @@ import { getActiveSectorIndex } from "./wheelGeometry";
 import type { WheelConfig, WheelMenu } from "./wheelTypes";
 
 interface DrawWheelOptions {
+  backgroundImage?: CanvasImageSource | null;
   canvas: HTMLCanvasElement;
   center: Point;
   cursor: Point;
   menu: WheelMenu;
+  renderMode?: "preview" | "runtime";
   wheel: WheelConfig;
 }
 
-export function drawWheel({ canvas, center, cursor, menu, wheel }: DrawWheelOptions): number | null {
+export function drawWheel({ backgroundImage = null, canvas, center, cursor, menu, renderMode = "preview", wheel }: DrawWheelOptions): number | null {
   const context = canvas.getContext("2d");
   if (!context) {
     return null;
@@ -26,7 +28,7 @@ export function drawWheel({ canvas, center, cursor, menu, wheel }: DrawWheelOpti
 
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
   context.clearRect(0, 0, displaySize, displaySize);
-  drawWheelBackdrop(context, center, wheel);
+  drawWheelBackdrop(context, center, wheel, backgroundImage, renderMode);
 
   const activeIndex = getActiveSectorIndex(
     center,
@@ -46,7 +48,7 @@ export function drawWheel({ canvas, center, cursor, menu, wheel }: DrawWheelOpti
     context.moveTo(center.x, center.y);
     context.arc(center.x, center.y, wheel.outerRadiusPx, from, to);
     context.closePath();
-    context.fillStyle = index === activeIndex ? appearance.activeColor : getSectorFill(wheel);
+    context.fillStyle = index === activeIndex ? appearance.activeColor : getSectorFill(wheel, renderMode);
     context.fill();
     context.strokeStyle = appearance.borderColor;
     context.lineWidth = 2;
@@ -57,7 +59,7 @@ export function drawWheel({ canvas, center, cursor, menu, wheel }: DrawWheelOpti
     const labelX = center.x + Math.cos(labelAngle) * labelRadius;
     const labelY = center.y + Math.sin(labelAngle) * labelRadius;
 
-    context.fillStyle = index === activeIndex ? "#ffffff" : "#0f172a";
+    context.fillStyle = index === activeIndex ? "#ffffff" : getReadableTextColor(wheel, renderMode);
     context.font = "600 14px system-ui";
     context.textAlign = "center";
     context.textBaseline = "middle";
@@ -66,20 +68,26 @@ export function drawWheel({ canvas, center, cursor, menu, wheel }: DrawWheelOpti
 
   context.beginPath();
   context.arc(center.x, center.y, wheel.innerRadiusPx, 0, Math.PI * 2);
-  context.fillStyle = getCenterFill(wheel);
+  context.fillStyle = getCenterFill(wheel, renderMode);
   context.fill();
   context.strokeStyle = appearance.borderColor;
   context.stroke();
-  context.fillStyle = "#475569";
+  context.fillStyle = getCenterTextColor(wheel, renderMode);
   context.font = "600 13px system-ui";
   context.textAlign = "center";
   context.textBaseline = "middle";
-  context.fillText("Orbit", center.x, center.y);
+  context.fillText(renderMode === "runtime" ? "取消" : "Orbit", center.x, center.y);
 
   return activeIndex;
 }
 
-function drawWheelBackdrop(context: CanvasRenderingContext2D, center: Point, wheel: WheelConfig) {
+function drawWheelBackdrop(
+  context: CanvasRenderingContext2D,
+  center: Point,
+  wheel: WheelConfig,
+  backgroundImage: CanvasImageSource | null,
+  renderMode: "preview" | "runtime",
+) {
   const appearance = wheel.appearance;
   const padding = Math.max(12, Math.round(appearance.blurPx * 0.7));
   const radius = wheel.outerRadiusPx + padding;
@@ -98,22 +106,31 @@ function drawWheelBackdrop(context: CanvasRenderingContext2D, center: Point, whe
   gradient.addColorStop(0.72, rgba(baseColor, alpha));
   gradient.addColorStop(1, rgba(baseColor, Math.max(0, alpha - 0.18)));
 
-  context.save();
-  context.beginPath();
-  context.arc(center.x, center.y, radius, 0, Math.PI * 2);
-  context.fillStyle = gradient;
-  context.shadowColor = shadowColor(appearance.material);
-  context.shadowBlur = appearance.material === "transparent" ? 0 : Math.max(6, appearance.blurPx);
-  context.shadowOffsetY = appearance.material === "solid" ? 3 : 8;
-  context.fill();
-  context.restore();
+  if (renderMode === "preview") {
+    context.save();
+    context.beginPath();
+    context.arc(center.x, center.y, radius, 0, Math.PI * 2);
+    context.fillStyle = gradient;
+    context.shadowColor = shadowColor(appearance.material);
+    context.shadowBlur = appearance.material === "transparent" ? 0 : Math.max(6, appearance.blurPx);
+    context.shadowOffsetY = appearance.material === "solid" ? 3 : 8;
+    context.fill();
+    context.restore();
 
-  if (appearance.material === "acrylic" || appearance.material === "frosted") {
-    drawAcrylicHighlight(context, center, radius, appearance.opacity);
+    if (appearance.material === "acrylic" || appearance.material === "frosted") {
+      drawAcrylicHighlight(context, center, radius, appearance.opacity);
+    }
   }
 
-  if (appearance.background.type === "image") {
-    drawReservedImageBackground(context, center, radius, appearance.background.opacity);
+  if (appearance.background.type === "image" && backgroundImage) {
+    drawImageBackground(
+      context,
+      center,
+      renderMode === "runtime" ? wheel.outerRadiusPx : radius,
+      appearance.background.opacity,
+      appearance.background.fit,
+      backgroundImage,
+    );
   }
 }
 
@@ -136,31 +153,62 @@ function drawAcrylicHighlight(context: CanvasRenderingContext2D, center: Point, 
   context.restore();
 }
 
-function drawReservedImageBackground(
+function drawImageBackground(
   context: CanvasRenderingContext2D,
   center: Point,
   radius: number,
   opacity: number,
+  fit: WheelConfig["appearance"]["background"]["fit"],
+  image: CanvasImageSource,
 ) {
+  const imageSize = getImageSize(image);
+  if (!imageSize) {
+    return;
+  }
+
+  const targetSize = radius * 2;
+  const scale =
+    fit === "contain"
+      ? Math.min(targetSize / imageSize.width, targetSize / imageSize.height)
+      : Math.max(targetSize / imageSize.width, targetSize / imageSize.height);
+  const drawWidth = imageSize.width * scale;
+  const drawHeight = imageSize.height * scale;
+  const drawX = center.x - drawWidth / 2;
+  const drawY = center.y - drawHeight / 2;
+
   context.save();
   context.beginPath();
   context.arc(center.x, center.y, radius, 0, Math.PI * 2);
   context.clip();
-  context.fillStyle = `rgba(15, 23, 42, ${opacity})`;
-  context.fillRect(center.x - radius, center.y - radius, radius * 2, radius * 2);
-  context.strokeStyle = `rgba(255, 255, 255, ${Math.min(0.3, opacity)})`;
-  context.lineWidth = 2;
-  for (let offset = -radius; offset < radius * 2; offset += 18) {
-    context.beginPath();
-    context.moveTo(center.x - radius + offset, center.y + radius);
-    context.lineTo(center.x + radius + offset, center.y - radius);
-    context.stroke();
-  }
+  context.globalAlpha = opacity;
+  context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
   context.restore();
 }
 
-function getSectorFill(wheel: WheelConfig): string {
+function getImageSize(image: CanvasImageSource): { width: number; height: number } | null {
+  if ("naturalWidth" in image && "naturalHeight" in image && image.naturalWidth > 0 && image.naturalHeight > 0) {
+    return {
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+    };
+  }
+
+  if ("width" in image && "height" in image && Number(image.width) > 0 && Number(image.height) > 0) {
+    return {
+      width: Number(image.width),
+      height: Number(image.height),
+    };
+  }
+
+  return null;
+}
+
+function getSectorFill(wheel: WheelConfig, renderMode: "preview" | "runtime"): string {
   const color = hexToRgb(wheel.appearance.backgroundColor);
+  if (renderMode === "runtime" && wheel.appearance.material !== "solid") {
+    return rgba(color, Math.min(0.74, wheel.appearance.opacity * 0.68));
+  }
+
   switch (wheel.appearance.material) {
     case "transparent":
       return rgba(color, 0.24);
@@ -173,9 +221,31 @@ function getSectorFill(wheel: WheelConfig): string {
   }
 }
 
-function getCenterFill(wheel: WheelConfig): string {
+function getCenterFill(wheel: WheelConfig, renderMode: "preview" | "runtime"): string {
   const color = hexToRgb(wheel.appearance.backgroundColor);
+  if (renderMode === "runtime" && wheel.appearance.material !== "solid") {
+    return rgba(color, Math.max(0.68, wheel.appearance.opacity * 0.72));
+  }
+
   return rgba(color, wheel.appearance.material === "solid" ? 1 : Math.max(0.72, wheel.appearance.opacity));
+}
+
+function getReadableTextColor(wheel: WheelConfig, renderMode: "preview" | "runtime"): string {
+  const background = hexToRgb(wheel.appearance.backgroundColor);
+  if (renderMode === "runtime" || wheel.appearance.material !== "transparent") {
+    return relativeLuminance(background) < 0.45 ? "#f8fbff" : "#0f172a";
+  }
+
+  return "#dbe7ff";
+}
+
+function getCenterTextColor(wheel: WheelConfig, renderMode: "preview" | "runtime"): string {
+  const background = hexToRgb(wheel.appearance.backgroundColor);
+  if (renderMode === "runtime") {
+    return relativeLuminance(background) < 0.45 ? "#dbe7ff" : "#1e293b";
+  }
+
+  return relativeLuminance(background) < 0.45 ? "#a9b8d4" : "#475569";
 }
 
 function materialAlpha(material: WheelConfig["appearance"]["material"], opacity: number): number {
@@ -202,6 +272,15 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
     g: Number.parseInt(normalized.slice(2, 4), 16),
     b: Number.parseInt(normalized.slice(4, 6), 16),
   };
+}
+
+function relativeLuminance(color: { r: number; g: number; b: number }): number {
+  const [r, g, b] = [color.r, color.g, color.b].map((channel) => {
+    const value = channel / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 function rgba(color: { r: number; g: number; b: number }, alpha: number): string {
