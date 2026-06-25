@@ -29,16 +29,15 @@ export function drawWheel({
   }
 
   const appearance = wheel.appearance;
-  const ratio = window.devicePixelRatio || 1;
+  const ratio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
   const displaySize = wheel.sizePx;
   canvas.width = Math.floor(displaySize * ratio);
   canvas.height = Math.floor(displaySize * ratio);
-  canvas.style.width = `${displaySize}px`;
-  canvas.style.height = `${displaySize}px`;
 
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
   context.clearRect(0, 0, displaySize, displaySize);
   drawWheelBackdrop(context, center, wheel, backgroundImage, renderMode);
+  const transparentRuntime = isTransparentRuntime(wheel, renderMode);
 
   const activeIndex = getActiveSectorIndex(
     center,
@@ -58,11 +57,15 @@ export function drawWheel({
     context.moveTo(center.x, center.y);
     context.arc(center.x, center.y, wheel.outerRadiusPx, from, to);
     context.closePath();
-    context.fillStyle = index === activeIndex ? appearance.activeColor : getSectorFill(wheel, renderMode);
-    context.fill();
-    context.strokeStyle = appearance.borderColor;
-    context.lineWidth = 2;
-    context.stroke();
+    if (index === activeIndex || !transparentRuntime) {
+      context.fillStyle = index === activeIndex ? appearance.activeColor : getSectorFill(wheel, renderMode);
+      context.fill();
+    }
+    if (!transparentRuntime) {
+      context.strokeStyle = appearance.borderColor;
+      context.lineWidth = 2;
+      context.stroke();
+    }
 
     const labelAngle = from + sectorAngle / 2;
     const labelRadius = (wheel.innerRadiusPx + wheel.outerRadiusPx) / 2;
@@ -74,6 +77,7 @@ export function drawWheel({
       maxWidth: getSectorTextMaxWidth(sectorAngle, labelRadius),
       sector,
       textColor: index === activeIndex ? "#ffffff" : getReadableTextColor(wheel, renderMode),
+      textShadow: transparentRuntime,
       x: labelX,
       y: labelY,
     });
@@ -81,15 +85,22 @@ export function drawWheel({
 
   context.beginPath();
   context.arc(center.x, center.y, wheel.innerRadiusPx, 0, Math.PI * 2);
-  context.fillStyle = getCenterFill(wheel, renderMode);
-  context.fill();
-  context.strokeStyle = appearance.borderColor;
-  context.stroke();
+  if (!transparentRuntime) {
+    context.fillStyle = getCenterFill(wheel, renderMode);
+    context.fill();
+    context.strokeStyle = appearance.borderColor;
+    context.stroke();
+  }
+  context.save();
+  if (transparentRuntime) {
+    applyTransparentTextShadow(context);
+  }
   context.fillStyle = getCenterTextColor(wheel, renderMode);
   context.font = "600 13px system-ui";
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(renderMode === "runtime" ? "取消" : "Orbit", center.x, center.y);
+  context.restore();
 
   return activeIndex;
 }
@@ -99,12 +110,19 @@ interface SectorIdentityOptions {
   maxWidth: number;
   sector: WheelSector;
   textColor: string;
+  textShadow?: boolean;
   x: number;
   y: number;
 }
 
-function drawSectorIdentity(context: CanvasRenderingContext2D, { iconImage, maxWidth, sector, textColor, x, y }: SectorIdentityOptions) {
+function drawSectorIdentity(
+  context: CanvasRenderingContext2D,
+  { iconImage, maxWidth, sector, textColor, textShadow = false, x, y }: SectorIdentityOptions,
+) {
   context.save();
+  if (textShadow) {
+    applyTransparentTextShadow(context);
+  }
   context.fillStyle = textColor;
   context.textAlign = "center";
   context.textBaseline = "middle";
@@ -295,8 +313,17 @@ function getImageSize(image: CanvasImageSource): { width: number; height: number
 
 function getSectorFill(wheel: WheelConfig, renderMode: "preview" | "runtime"): string {
   const color = hexToRgb(wheel.appearance.backgroundColor);
-  if (renderMode === "runtime" && wheel.appearance.material !== "solid") {
-    return rgba(color, Math.min(0.74, wheel.appearance.opacity * 0.68));
+  if (renderMode === "runtime") {
+    switch (wheel.appearance.material) {
+      case "transparent":
+        return rgba(color, Math.min(0.34, wheel.appearance.opacity * 0.38));
+      case "acrylic":
+        return rgba(color, Math.min(0.64, wheel.appearance.opacity * 0.58));
+      case "frosted":
+        return rgba(color, Math.min(0.74, wheel.appearance.opacity * 0.68));
+      case "solid":
+        return rgba(color, 1);
+    }
   }
 
   switch (wheel.appearance.material) {
@@ -313,8 +340,17 @@ function getSectorFill(wheel: WheelConfig, renderMode: "preview" | "runtime"): s
 
 function getCenterFill(wheel: WheelConfig, renderMode: "preview" | "runtime"): string {
   const color = hexToRgb(wheel.appearance.backgroundColor);
-  if (renderMode === "runtime" && wheel.appearance.material !== "solid") {
-    return rgba(color, Math.max(0.68, wheel.appearance.opacity * 0.72));
+  if (renderMode === "runtime") {
+    switch (wheel.appearance.material) {
+      case "transparent":
+        return rgba(color, Math.min(0.46, wheel.appearance.opacity * 0.52));
+      case "acrylic":
+        return rgba(color, Math.min(0.7, wheel.appearance.opacity * 0.68));
+      case "frosted":
+        return rgba(color, Math.min(0.8, wheel.appearance.opacity * 0.76));
+      case "solid":
+        return rgba(color, 1);
+    }
   }
 
   return rgba(color, wheel.appearance.material === "solid" ? 1 : Math.max(0.72, wheel.appearance.opacity));
@@ -322,6 +358,9 @@ function getCenterFill(wheel: WheelConfig, renderMode: "preview" | "runtime"): s
 
 function getReadableTextColor(wheel: WheelConfig, renderMode: "preview" | "runtime"): string {
   const background = hexToRgb(wheel.appearance.backgroundColor);
+  if (isTransparentRuntime(wheel, renderMode)) {
+    return "#ffffff";
+  }
   if (renderMode === "runtime" || wheel.appearance.material !== "transparent") {
     return relativeLuminance(background) < 0.45 ? "#f8fbff" : "#0f172a";
   }
@@ -331,6 +370,9 @@ function getReadableTextColor(wheel: WheelConfig, renderMode: "preview" | "runti
 
 function getCenterTextColor(wheel: WheelConfig, renderMode: "preview" | "runtime"): string {
   const background = hexToRgb(wheel.appearance.backgroundColor);
+  if (isTransparentRuntime(wheel, renderMode)) {
+    return "#ffffff";
+  }
   if (renderMode === "runtime") {
     return relativeLuminance(background) < 0.45 ? "#dbe7ff" : "#1e293b";
   }
@@ -353,6 +395,16 @@ function materialAlpha(material: WheelConfig["appearance"]["material"], opacity:
 
 function shadowColor(material: WheelConfig["appearance"]["material"]): string {
   return material === "transparent" ? "rgba(0, 0, 0, 0)" : "rgba(15, 23, 42, 0.22)";
+}
+
+function isTransparentRuntime(wheel: WheelConfig, renderMode: "preview" | "runtime"): boolean {
+  return renderMode === "runtime" && wheel.appearance.material === "transparent";
+}
+
+function applyTransparentTextShadow(context: CanvasRenderingContext2D) {
+  context.shadowColor = "rgba(15, 23, 42, 0.86)";
+  context.shadowBlur = 5;
+  context.shadowOffsetY = 1;
 }
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {

@@ -195,10 +195,28 @@ function App() {
     }
   }
 
+  function handleToggleTheme() {
+    const nextTheme: OrbitConfig["wheel"]["theme"] = appTheme === "dark" ? "light" : "dark";
+    setDraftConfig({
+      ...draftConfig,
+      wheel: {
+        ...draftConfig.wheel,
+        theme: nextTheme,
+      },
+    });
+    setStatus({
+      tone: "info",
+      message: `已切换为${getThemeLabel(nextTheme)}模式`,
+      detail: "保存后会作为设置窗口默认外观。",
+    });
+  }
+
   const mainMenu = draftConfig.menus[0];
   const runtimeLabel = getRuntimeLabel(runtimeStatus);
   const wheelDescriptionId = "wheel-preview-description";
   const appTheme = resolveAppTheme(draftConfig.wheel.theme);
+  const themeToggleTarget = appTheme === "dark" ? "light" : "dark";
+  const themeToggleLabel = getThemeLabel(themeToggleTarget);
 
   if (windowLabel === "wheel") {
     return <WheelWindow />;
@@ -221,10 +239,16 @@ function App() {
           </a>
         </nav>
         <div className="app-rail__footer">
-          <a className="app-nav__item" href="#settings-title">
-            <NavIcon name="settings" />
-            <span>设置</span>
-          </a>
+          <button
+            className="app-nav__item app-nav__item--button"
+            type="button"
+            aria-label={`切换到${themeToggleLabel}模式`}
+            title={`切换到${themeToggleLabel}模式`}
+            onClick={handleToggleTheme}
+          >
+            <NavIcon name={themeToggleTarget === "light" ? "theme-light" : "theme-dark"} />
+            <span>{themeToggleLabel}</span>
+          </button>
         </div>
       </aside>
 
@@ -315,7 +339,7 @@ function App() {
   );
 }
 
-function NavIcon({ name }: { name: "home" | "preset" | "settings" }) {
+function NavIcon({ name }: { name: "home" | "preset" | "theme-dark" | "theme-light" }) {
   switch (name) {
     case "home":
       return (
@@ -337,7 +361,13 @@ function NavIcon({ name }: { name: "home" | "preset" | "settings" }) {
           <path d="M17 17h2v2h-2z" />
         </svg>
       );
-    case "settings":
+    case "theme-dark":
+      return (
+        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+          <path d="M20.5 14.6A7.3 7.3 0 0 1 9.4 3.5a8 8 0 1 0 11.1 11.1z" />
+        </svg>
+      );
+    case "theme-light":
       return (
         <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
           <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" />
@@ -364,6 +394,10 @@ function resolveAppTheme(theme: OrbitConfig["wheel"]["theme"]): "dark" | "light"
   }
 
   return "dark";
+}
+
+function getThemeLabel(theme: "dark" | "light"): string {
+  return theme === "dark" ? "夜间" : "日间";
 }
 function WheelWindow() {
   const [config, setConfig] = useState<OrbitConfig>(defaultOrbitConfig);
