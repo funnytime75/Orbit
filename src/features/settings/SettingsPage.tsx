@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -9,7 +9,6 @@ import {
   hasDuplicateApp,
   MAX_SECTOR_COUNT,
   MIN_SECTOR_COUNT,
-  moveSector,
   moveSectorToIndex,
   replaceSectorWithApp,
   rememberAppPickerDir,
@@ -145,6 +144,8 @@ export function SettingsPage({
   const [confirmingResetDefault, setConfirmingResetDefault] = useState(false);
   const [confirmingDeleteSectorId, setConfirmingDeleteSectorId] = useState<string | null>(null);
   const [pendingDuplicateAppAction, setPendingDuplicateAppAction] = useState<PendingDuplicateAppAction | null>(null);
+  const [draggingSectorId, setDraggingSectorId] = useState<string | null>(null);
+  const [dragOverSectorId, setDragOverSectorId] = useState<string | null>(null);
   const draftConfigRef = useRef(draftConfig);
   draftConfigRef.current = draftConfig;
   const mainMenu = draftConfig.menus[0];
@@ -162,6 +163,22 @@ export function SettingsPage({
     isBackgroundImageSelected && failedBackgroundImagePath === background.imagePath
       ? "图片无法读取，请重新选择或清除。"
       : null;
+  const sectorLabelErrorCount = mainMenu.sectors.filter((sector) => getSectorLabelError(sector.label)).length;
+  const draftValidationDetail = describeDraftValidationIssues({
+    backgroundImageError,
+    sectorLabelErrorCount,
+    shortcutError,
+  });
+  const hasBlockingDraftError = draftValidationDetail !== null;
+  const displayedStatus: SettingsStatus =
+    hasBlockingDraftError && status.tone !== "error"
+      ? {
+          tone: "warning",
+          message: "修复高亮项后可保存",
+          detail: draftValidationDetail,
+          secondaryLabel: "需修复",
+        }
+      : status;
   const triggerStatus = describeTriggerStatus({
     isDirty,
     lastFailedSectorId,
@@ -169,13 +186,14 @@ export function SettingsPage({
     shortcut: draftConfig.trigger.shortcut,
   });
   const statusSecondaryLabel =
-    status.secondaryLabel === undefined
-      ? status.tone === "error"
+    displayedStatus.secondaryLabel === undefined
+      ? displayedStatus.tone === "error"
         ? null
         : isDirty
           ? "有未保存更改"
           : "配置已同步"
-      : status.secondaryLabel;
+      : displayedStatus.secondaryLabel;
+  const canSave = isDirty && !isSaving;
 
   async function handleAddApp() {
     if (!canOpenSystemFilePicker(onStatusChange, "请在桌面应用中添加应用", "当前浏览器预览不能打开系统文件选择器，请从 Orbit 桌面窗口选择 Windows .exe 应用。")) {
@@ -383,6 +401,24 @@ export function SettingsPage({
 
   function handleSaveClick() {
     clearInlineConfirmations();
+    if (hasBlockingDraftError) {
+      onStatusChange({
+        tone: "warning",
+        message: "修复高亮项后可保存",
+        detail: draftValidationDetail ?? "请先修复高亮的设置项。",
+        secondaryLabel: "需修复",
+      });
+
+      if (sectorLabelErrorCount > 0) {
+        setActiveTab("apps");
+      } else if (shortcutError) {
+        setActiveTab("trigger");
+      } else if (backgroundImageError) {
+        setActiveTab("appearance");
+      }
+      return;
+    }
+
     onSave();
   }
 
@@ -391,8 +427,72 @@ export function SettingsPage({
     onExecuteSector(sectorId);
   }
 
-  function handleMoveSectorToIndex(sectorId: string, targetIndex: number) {
-    commitDraftChange(moveSectorToIndex(draftConfig, sectorId, targetIndex));
+  function handleSectorDragStart(event: DragEvent<HTMLElement>, sectorId: string, index: number) {
+    clearInlineConfirmations();
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", sectorId);
+    setDraggingSectorId(sectorId);
+    setDragOverSectorId(sectorId);
+    onPreviewSectorChange(index);
+  }
+
+  function handleSectorDragOver(event: DragEvent<HTMLElement>, sectorId: string, index: number) {
+    if (!draggingSectorId || draggingSectorId === sectorId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverSectorId(sectorId);
+    onPreviewSectorChange(index);
+  }
+
+  function handleSectorDrop(event: DragEvent<HTMLElement>, targetSectorId: string) {
+    event.preventDefault();
+    const sourceSectorId = draggingSectorId ?? event.dataTransfer.getData("text/plain");
+    setDraggingSectorId(null);
+    setDragOverSectorId(null);
+    onPreviewSectorChange(null);
+
+    if (!sourceSectorId || sourceSectorId === targetSectorId) {
+      return;
+    }
+
+    const currentConfig = draftConfigRef.current;
+    const targetIndex = currentConfig.menus[0].sectors.findIndex((sector) => sector.id === targetSectorId);
+    if (targetIndex === -1) {
+      return;
+    }
+
+    commitDraftChange(moveSectorToIndex(currentConfig, sourceSectorId, targetIndex));
+    onStatusChange({
+      tone: "info",
+      message: "已调整轮盘顺序",
+      detail: "保存后会写入主轮盘配置。",
+    });
+  }
+
+  function handleSectorDragEnd() {
+    setDraggingSectorId(null);
+    setDragOverSectorId(null);
+    onPreviewSectorChange(null);
+  }
+
+  function handleSectorSortKeyDown(event: KeyboardEvent<HTMLButtonElement>, sectorId: string, index: number) {
+    const targetIndex = event.key === "ArrowUp" ? index - 1 : event.key === "ArrowDown" ? index + 1 : null;
+    if (targetIndex === null || targetIndex < 0 || targetIndex >= mainMenu.sectors.length) {
+      return;
+    }
+
+    event.preventDefault();
+    clearInlineConfirmations();
+    commitDraftChange(moveSectorToIndex(draftConfigRef.current, sectorId, targetIndex));
+    onPreviewSectorChange(targetIndex);
+    onStatusChange({
+      tone: "info",
+      message: "已调整轮盘顺序",
+      detail: "保存后会写入主轮盘配置。",
+    });
   }
 
   function handleResetDefaultClick() {
@@ -591,7 +691,13 @@ export function SettingsPage({
             <button className="button button--secondary" type="button" onClick={handleRevertClick} disabled={!isDirty || isSaving}>
               撤销更改
             </button>
-            <button className="button button--primary" type="button" onClick={handleSaveClick} disabled={!isDirty || isSaving}>
+            <button
+              className="button button--primary"
+              type="button"
+              onClick={handleSaveClick}
+              disabled={!canSave}
+              title={hasBlockingDraftError ? draftValidationDetail ?? undefined : undefined}
+            >
               {isSaving ? "保存中" : "保存"}
             </button>
           </div>
@@ -599,17 +705,17 @@ export function SettingsPage({
       </div>
 
       <div
-        className={`status-banner status-banner--${status.tone}${isDirty && status.tone !== "error" ? " status-banner--dirty" : ""}`}
-        role={status.tone === "error" ? "alert" : "status"}
-        aria-live={status.tone === "error" ? "assertive" : "polite"}
+        className={`status-banner status-banner--${displayedStatus.tone}${isDirty && displayedStatus.tone !== "error" ? " status-banner--dirty" : ""}`}
+        role={displayedStatus.tone === "error" ? "alert" : "status"}
+        aria-live={displayedStatus.tone === "error" ? "assertive" : "polite"}
       >
         <span>
-          <strong>{status.message}</strong>
-          {status.detail ? <small>{status.detail}</small> : null}
+          <strong>{displayedStatus.message}</strong>
+          {displayedStatus.detail ? <small>{displayedStatus.detail}</small> : null}
         </span>
-        {status.actions?.length ? (
-          <div className="status-banner__actions" aria-label={`${status.message}恢复操作`}>
-            {status.actions.map((action) => (
+        {displayedStatus.actions?.length ? (
+          <div className="status-banner__actions" aria-label={`${displayedStatus.message}恢复操作`}>
+            {displayedStatus.actions.map((action) => (
               <button
                 className={`button button--${action.variant ?? "secondary"} button--compact`}
                 disabled={action.disabled}
@@ -679,12 +785,25 @@ export function SettingsPage({
                 const labelInputId = `sector-${sector.id}-label`;
                 const labelErrorId = `sector-${sector.id}-label-error`;
                 const hasRuntimeError = lastFailedSectorId === sector.id;
+                const sectorLabel = sector.label.trim() || "未命名扇区";
+                const isDragging = draggingSectorId === sector.id;
+                const isDragTarget = dragOverSectorId === sector.id && draggingSectorId !== sector.id;
 
                 return (
                   <article
-                    aria-label={`${placement.accessibleLabel}，${sector.label}`}
-                    className={hasRuntimeError ? "sector-editor sector-editor--error" : "sector-editor"}
+                    aria-label={`${placement.accessibleLabel}，${sectorLabel}`}
+                    className={[
+                      "sector-editor",
+                      hasRuntimeError ? "sector-editor--error" : null,
+                      isDragging ? "sector-editor--dragging" : null,
+                      isDragTarget ? "sector-editor--drag-target" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                     key={sector.id}
+                    onDragEnd={handleSectorDragEnd}
+                    onDragOver={(event) => handleSectorDragOver(event, sector.id, index)}
+                    onDrop={(event) => handleSectorDrop(event, sector.id)}
                     onBlur={(event) => {
                       if (!event.currentTarget.contains(event.relatedTarget)) {
                         onPreviewSectorChange(null);
@@ -694,13 +813,23 @@ export function SettingsPage({
                     onMouseEnter={() => onPreviewSectorChange(index)}
                     onMouseLeave={() => onPreviewSectorChange(null)}
                   >
-                    <div className="sector-editor__marker" aria-hidden="true">
-                      <span className="sector-editor__direction">{placement.compactLabel}</span>
+                    <div className="sector-editor__marker">
+                      <button
+                        className="sector-editor__drag-handle"
+                        type="button"
+                        draggable
+                        aria-label={`拖动 ${sectorLabel} 调整顺序`}
+                        title="拖动排序"
+                        onDragStart={(event) => handleSectorDragStart(event, sector.id, index)}
+                        onKeyDown={(event) => handleSectorSortKeyDown(event, sector.id, index)}
+                      >
+                        ⋮⋮
+                      </button>
                       <SectorIconPreview icon={sector.icon} />
                     </div>
 
-                    <div className="sector-editor__fields">
-                      <label htmlFor={labelInputId}>
+                    <div className="sector-editor__content">
+                      <label className="sector-editor__name" htmlFor={labelInputId}>
                         <span>名称</span>
                         <input
                           aria-describedby={labelError ? labelErrorId : undefined}
@@ -719,20 +848,18 @@ export function SettingsPage({
                         ) : null}
                       </label>
 
-                      <div className="sector-editor__type" aria-label={`类型：${actionType.label}`}>
-                        <span>类型</span>
-                        <strong>{actionType.label}</strong>
-                      </div>
-
-                      <div className="sector-editor__path">
+                      <div className="sector-editor__meta">
+                        <strong className="sector-editor__type-badge" aria-label={`类型：${actionType.label}`}>
+                          {actionType.label}
+                        </strong>
                         <span>{placement.accessibleLabel}</span>
                         <span>{describeAction(sector.action)}</span>
-                        {hasRuntimeError ? <span className="sector-editor__recovery">上次启动失败，可重新运行或重选应用。</span> : null}
                       </div>
+                      {hasRuntimeError ? <p className="sector-editor__recovery">上次启动失败，可重新运行或重选应用。</p> : null}
                     </div>
 
                     <div className="sector-editor__actions">
-                      <div className="sector-editor__primary-actions" aria-label={`${sector.label} 常用操作`}>
+                      <div className="sector-editor__primary-actions" aria-label={`${sectorLabel} 常用操作`}>
                         <button
                           className="icon-button"
                           type="button"
@@ -750,55 +877,18 @@ export function SettingsPage({
                           重选
                         </button>
                       </div>
-                      <details className="sector-editor__adjust-menu">
-                        <summary aria-label={`打开 ${sector.label} 更多操作`}>更多</summary>
-                        <div className="sector-editor__adjust-panel" aria-label={`${sector.label} 调整操作`}>
-                          <button
-                            className="button button--secondary button--compact"
-                            type="button"
-                            onClick={() => handleMoveSectorToIndex(sector.id, 0)}
-                            disabled={index === 0}
-                          >
-                            移到最前
-                          </button>
-                          <button
-                            className="button button--secondary button--compact"
-                            type="button"
-                            onClick={() => commitDraftChange(moveSector(draftConfig, sector.id, "up"))}
-                            disabled={index === 0}
-                          >
-                            上移
-                          </button>
-                          <button
-                            className="button button--secondary button--compact"
-                            type="button"
-                            onClick={() => commitDraftChange(moveSector(draftConfig, sector.id, "down"))}
-                            disabled={index === mainMenu.sectors.length - 1}
-                          >
-                            下移
-                          </button>
-                          <button
-                            className="button button--secondary button--compact"
-                            type="button"
-                            onClick={() => handleMoveSectorToIndex(sector.id, mainMenu.sectors.length - 1)}
-                            disabled={index === mainMenu.sectors.length - 1}
-                          >
-                            移到最后
-                          </button>
-                          <button
-                            className={
-                              confirmingDeleteSectorId === sector.id
-                                ? "button button--warning button--compact"
-                                : "button button--secondary button--compact button--danger"
-                            }
-                            type="button"
-                            onClick={() => handleRemoveSector(sector.id)}
-                            disabled={mainMenu.sectors.length <= MIN_SECTOR_COUNT}
-                          >
-                            {confirmingDeleteSectorId === sector.id ? "确认删除" : "删除"}
-                          </button>
-                        </div>
-                      </details>
+                      <button
+                        className={
+                          confirmingDeleteSectorId === sector.id
+                            ? "button button--warning button--compact sector-editor__delete"
+                            : "button button--secondary button--compact button--danger sector-editor__delete"
+                        }
+                        type="button"
+                        onClick={() => handleRemoveSector(sector.id)}
+                        disabled={mainMenu.sectors.length <= MIN_SECTOR_COUNT}
+                      >
+                        {confirmingDeleteSectorId === sector.id ? "确认删除" : "删除"}
+                      </button>
                     </div>
                   </article>
                 );
@@ -1020,12 +1110,12 @@ export function SettingsPage({
             </div>
 
             <div className="settings-list" aria-label="高级设置">
-              <div className="settings-subsection settings-subsection--flush">
-                <div className="section-heading section-heading--compact">
-                  <span>触发</span>
-                  <h3>手感参数</h3>
-                </div>
-                <div className="settings-list">
+              <details className="advanced-settings advanced-settings--group" open>
+                <summary>
+                  <span>触发手感</span>
+                  <small>长按、方向阈值和中心取消区</small>
+                </summary>
+                <div className="settings-list settings-list--nested">
                   <SettingRow icon="trigger" tone="neutral" title="长按时间" description="达到这个时间后才会呼出轮盘">
                     <div className="range-control">
                       <input
@@ -1079,14 +1169,14 @@ export function SettingsPage({
                     />
                   </SettingRow>
                 </div>
-              </div>
+              </details>
 
-              <div className="settings-subsection">
-                <div className="section-heading section-heading--compact">
-                  <span>材质</span>
-                  <h3>高级参数</h3>
-                </div>
-                <div className="settings-list">
+              <details className="advanced-settings advanced-settings--group">
+                <summary>
+                  <span>轮盘尺寸</span>
+                  <small>整体大小、扇区宽度和材质强度</small>
+                </summary>
+                <div className="settings-list settings-list--nested">
                   <SettingRow icon="material" tone="neutral" title="轮盘大小" description="控制呼出轮盘的整体直径">
                     <div className="range-control">
                       <input
@@ -1154,14 +1244,14 @@ export function SettingsPage({
                     </div>
                   </SettingRow>
                 </div>
-              </div>
+              </details>
 
-              <div className="settings-subsection">
-                <div className="section-heading section-heading--compact">
-                  <span>启动</span>
-                  <h3>系统启动</h3>
-                </div>
-                <div className="settings-list" aria-label="系统启动设置">
+              <details className="advanced-settings advanced-settings--group">
+                <summary>
+                  <span>启动行为</span>
+                  <small>系统登录后的启动方式</small>
+                </summary>
+                <div className="settings-list settings-list--nested" aria-label="系统启动设置">
                   <SettingRow icon="power" tone="orange" title="开机自启" description="系统登录后自动启动 Orbit">
                     <SwitchControl
                       checked={draftConfig.startup.launchAtLogin}
@@ -1194,7 +1284,7 @@ export function SettingsPage({
                     />
                   </SettingRow>
                 </div>
-              </div>
+              </details>
 
               <details className="advanced-settings advanced-settings--maintenance" onToggle={handleMaintenanceToggle}>
                 <summary>维护操作</summary>
@@ -1426,6 +1516,36 @@ function getSectorLabelError(label: string): string | null {
   return label.trim() ? null : "名称不能为空";
 }
 
+function describeDraftValidationIssues({
+  backgroundImageError,
+  sectorLabelErrorCount,
+  shortcutError,
+}: {
+  backgroundImageError: string | null;
+  sectorLabelErrorCount: number;
+  shortcutError: string | null;
+}): string | null {
+  const issues: string[] = [];
+
+  if (sectorLabelErrorCount > 0) {
+    issues.push(`${sectorLabelErrorCount} 个扇区名称为空`);
+  }
+
+  if (shortcutError) {
+    issues.push("快捷键需要修复");
+  }
+
+  if (backgroundImageError) {
+    issues.push("背景图片需要重新选择或清除");
+  }
+
+  if (issues.length === 0) {
+    return null;
+  }
+
+  return `${issues.join("，")}。`;
+}
+
 function SectorIconPreview({ icon }: { icon: OrbitConfig["menus"][number]["sectors"][number]["icon"] }) {
   const [imageFailed, setImageFailed] = useState(false);
   const fallback = getIconFallback(icon);
@@ -1435,7 +1555,7 @@ function SectorIconPreview({ icon }: { icon: OrbitConfig["menus"][number]["secto
   }, [icon]);
 
   return (
-    <span className="sector-editor__icon">
+    <span className="sector-editor__icon" aria-hidden="true">
       {icon.type === "image" && !imageFailed ? (
         <img className="sector-editor__icon-image" src={icon.source} alt="" onError={() => setImageFailed(true)} />
       ) : (

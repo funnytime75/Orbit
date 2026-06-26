@@ -278,13 +278,14 @@ function App() {
     });
     setStatus({
       tone: "info",
-      message: `已切换为${getThemeLabel(nextTheme)}模式`,
+      message: `已切换设置窗口为${getThemeLabel(nextTheme)}模式`,
       detail: "保存后会作为设置窗口默认外观。",
     });
   }
 
   const mainMenu = draftConfig.menus[0];
   const runtimeLabel = getRuntimeLabel(runtimeStatus, status);
+  const runtimeTone = getRuntimeTone(runtimeStatus, status);
   const wheelDescriptionId = "wheel-preview-description";
   const appTheme = resolveAppTheme(draftConfig.wheel.theme);
   const themeToggleTarget = appTheme === "dark" ? "light" : "dark";
@@ -296,26 +297,26 @@ function App() {
 
   return (
     <main className="app-shell" data-theme={appTheme}>
-      <aside className="app-rail" aria-label="主导航">
+      <aside className="app-rail" aria-label="Orbit 状态栏">
         <div className="app-brand" aria-label="Orbit">
           <span>ORBIT</span>
         </div>
-        <nav className="app-nav" aria-label="设置导航">
+        <div className="app-nav" aria-label="当前配置">
           <a className="app-nav__item app-nav__item--active" href="#settings-title" aria-current="page">
             <NavIcon name="home" />
-            <span>首页</span>
+            <span>主轮盘</span>
           </a>
-        </nav>
+        </div>
         <div className="app-rail__footer">
           <button
             className="app-nav__item app-nav__item--button"
             type="button"
-            aria-label={`切换到${themeToggleLabel}模式`}
-            title={`切换到${themeToggleLabel}模式`}
+            aria-label={`切换设置窗口到${themeToggleLabel}模式`}
+            title={`切换设置窗口到${themeToggleLabel}模式`}
             onClick={handleToggleTheme}
           >
             <NavIcon name={themeToggleTarget === "light" ? "theme-light" : "theme-dark"} />
-            <span>{themeToggleLabel}</span>
+            <span>窗口{themeToggleLabel}</span>
           </button>
         </div>
       </aside>
@@ -326,7 +327,9 @@ function App() {
             <h1>鼠标轮盘启动器</h1>
             <p className="app-subtitle">管理鼠标轮盘的 Windows 应用、触发手感和外观配置。</p>
           </div>
-          <div className="runtime-pill">{runtimeLabel}</div>
+          <div className="runtime-pill" data-tone={runtimeTone}>
+            {runtimeLabel}
+          </div>
         </header>
 
         <section className="workspace">
@@ -725,6 +728,18 @@ function getRuntimeLabel(runtimeStatus: RuntimeStatus | null, status: SettingsSt
   }
 
   return runtimeStatus.enabled ? "配置已启用" : "触发已停用";
+}
+
+function getRuntimeTone(runtimeStatus: RuntimeStatus | null, status: SettingsStatus): "error" | "info" | "success" | "warning" {
+  if (status.tone === "error") {
+    return "error";
+  }
+
+  if (!runtimeStatus) {
+    return status.message === "浏览器预览" ? "info" : "warning";
+  }
+
+  return runtimeStatus.enabled ? "success" : "warning";
 }
 
 function toErrorStatus(error: unknown, message: string, recovery: string): SettingsStatus {

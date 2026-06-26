@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Orbit 应用图标">
+  <defs>
+    <linearGradient id="shell" x1="174" y1="126" x2="862" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#081120"/>
+      <stop offset="1" stop-color="#020713"/>
+    </linearGradient>
+    <linearGradient id="arc" x1="148" y1="772" x2="846" y2="156" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2f6df6"/>
+      <stop offset="0.56" stop-color="#1485ff"/>
+      <stop offset="1" stop-color="#20d8ff"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="636" y1="538" x2="811" y2="674" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#33f2ff"/>
+      <stop offset="1" stop-color="#10c8e8"/>
+    </linearGradient>
+    <radialGradient id="wheel" cx="0" cy="0" r="1" gradientTransform="matrix(0 330 -330 0 520 516)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#26354f"/>
+      <stop offset="1" stop-color="#101b2d"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1024" height="1024" rx="224" fill="url(#shell)"/>
+
+  <circle cx="520" cy="516" r="328" fill="#08101f"/>
+  <circle cx="520" cy="516" r="295" fill="url(#wheel)" stroke="#273650" stroke-width="24"/>
+
+  <path
+    d="M248 715A348 348 0 0 1 728 187"
+    fill="none"
+    stroke="url(#arc)"
+    stroke-linecap="round"
+    stroke-width="70"
+  />
+  <path
+    d="M764 227A348 348 0 0 1 801 740"
+    fill="none"
+    stroke="#2f6df6"
+    stroke-linecap="round"
+    stroke-width="22"
+    opacity="0.95"
+  />
+
+  <g stroke="#07101f" stroke-width="18" stroke-linejoin="round">
+    <path d="M516 228A288 288 0 0 1 628 251L548 448A78 78 0 0 0 516 442Z" fill="#34445e"/>
+    <path d="M644 258A288 288 0 0 1 742 333L588 475A78 78 0 0 0 554 450Z" fill="#40506a"/>
+    <path d="M755 349A288 288 0 0 1 806 464L599 501A78 78 0 0 0 592 481Z" fill="#394961"/>
+    <path d="M810 484A288 288 0 0 1 802 612L596 561A78 78 0 0 0 602 520Z" fill="#314157"/>
+    <path d="M795 632A288 288 0 0 1 745 724L586 586A78 78 0 0 0 593 575Z" fill="url(#cyan)"/>
+  </g>
+
+  <circle cx="520" cy="516" r="93" fill="#111b2e" stroke="#30425f" stroke-width="28"/>
+  <circle cx="520" cy="516" r="43" fill="#23e6f2"/>
+
+  <circle cx="304" cy="252" r="56" fill="#142137" stroke="#25334b" stroke-width="28"/>
+  <circle cx="304" cy="252" r="31" fill="#188cff"/>
+</svg>
