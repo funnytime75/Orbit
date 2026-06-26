@@ -15,10 +15,16 @@ import {
   rememberAppPickerDir,
   removeSector,
   updateSector,
-  updateIconFallback,
   type AppSelection,
 } from "./configEditor";
 import type { OrbitConfig } from "./configSchema";
+import {
+  WHEEL_SIZE_MAX,
+  clampWheelGeometry,
+  getMaxOuterRadius,
+  getMinOuterRadius,
+  getMinWheelSize,
+} from "./wheelLimits";
 import { formatShortcut, shortcutFromKeyboardEvent } from "./shortcutRecorder";
 import { getSectorPlacement } from "../wheel/sectorPlacement";
 import { toUserFacingErrorMessage } from "../../shared/errors/userFacingError";
@@ -57,6 +63,7 @@ type SettingsTabId = "apps" | "trigger" | "appearance" | "advanced";
 type SettingIconName = "power" | "silent" | "trigger" | "theme" | "material" | "opacity" | "blur" | "image";
 type SettingIconTone = "orange" | "green" | "violet" | "cyan" | "neutral";
 type StatusTone = "info" | "success" | "warning" | "error";
+type StatusActionVariant = "primary" | "secondary";
 type PendingDuplicateAppAction =
   | {
       path: string;
@@ -68,10 +75,19 @@ type PendingDuplicateAppAction =
       type: "replace";
     };
 
+export interface SettingsStatusAction {
+  disabled?: boolean;
+  label: string;
+  onClick: () => void;
+  variant?: StatusActionVariant;
+}
+
 export interface SettingsStatus {
-  tone: StatusTone;
-  message: string;
+  actions?: SettingsStatusAction[];
   detail?: string;
+  message: string;
+  secondaryLabel?: string | null;
+  tone: StatusTone;
 }
 
 const settingsTabs: Array<{
@@ -138,6 +154,10 @@ export function SettingsPage({
     draftConfig.wheel.appearance.material === "transparent" || draftConfig.wheel.appearance.material === "solid";
   const background = draftConfig.wheel.appearance.background;
   const isBackgroundImageSelected = background.type === "image";
+  const minWheelSizePx = getMinWheelSize(draftConfig.wheel.innerRadiusPx);
+  const minOuterRadiusPx = getMinOuterRadius(draftConfig.wheel.innerRadiusPx);
+  const maxOuterRadiusPx = getMaxOuterRadius(draftConfig.wheel.sizePx);
+  const sectorThicknessPx = draftConfig.wheel.outerRadiusPx - draftConfig.wheel.innerRadiusPx;
   const backgroundImageError =
     isBackgroundImageSelected && failedBackgroundImagePath === background.imagePath
       ? "图片无法读取，请重新选择或清除。"
@@ -148,6 +168,14 @@ export function SettingsPage({
     sectorCount: mainMenu.sectors.length,
     shortcut: draftConfig.trigger.shortcut,
   });
+  const statusSecondaryLabel =
+    status.secondaryLabel === undefined
+      ? status.tone === "error"
+        ? null
+        : isDirty
+          ? "有未保存更改"
+          : "配置已同步"
+      : status.secondaryLabel;
 
   async function handleAddApp() {
     if (!canOpenSystemFilePicker(onStatusChange, "请在桌面应用中添加应用", "当前浏览器预览不能打开系统文件选择器，请从 Orbit 桌面窗口选择 Windows .exe 应用。")) {
@@ -416,6 +444,16 @@ export function SettingsPage({
     });
   }
 
+  function updateWheelGeometry(patch: Partial<OrbitConfig["wheel"]>) {
+    commitDraftChange({
+      ...draftConfig,
+      wheel: clampWheelGeometry({
+        ...draftConfig.wheel,
+        ...patch,
+      }),
+    });
+  }
+
   function updateBackground(patch: Partial<OrbitConfig["wheel"]["appearance"]["background"]>) {
     onFailedBackgroundImagePathChange(null);
     updateAppearance({
@@ -569,11 +607,23 @@ export function SettingsPage({
           <strong>{status.message}</strong>
           {status.detail ? <small>{status.detail}</small> : null}
         </span>
-        {isDirty ? (
-          <strong>有未保存更改</strong>
-        ) : (
-          <strong>配置已同步</strong>
-        )}
+        {status.actions?.length ? (
+          <div className="status-banner__actions" aria-label={`${status.message}恢复操作`}>
+            {status.actions.map((action) => (
+              <button
+                className={`button button--${action.variant ?? "secondary"} button--compact`}
+                disabled={action.disabled}
+                key={action.label}
+                type="button"
+                onClick={action.onClick}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        ) : statusSecondaryLabel ? (
+          <strong>{statusSecondaryLabel}</strong>
+        ) : null}
       </div>
 
       <div
@@ -625,12 +675,9 @@ export function SettingsPage({
               {mainMenu.sectors.map((sector, index) => {
                 const placement = getSectorPlacement(index, mainMenu.sectors.length, draftConfig.wheel.startAngleDeg);
                 const labelError = getSectorLabelError(sector.label);
-                const iconFallback = getIconFallback(sector.icon);
-                const iconError = getSectorIconError(iconFallback);
+                const actionType = describeActionType(sector.action);
                 const labelInputId = `sector-${sector.id}-label`;
-                const iconInputId = `sector-${sector.id}-icon`;
                 const labelErrorId = `sector-${sector.id}-label-error`;
-                const iconErrorId = `sector-${sector.id}-icon-error`;
                 const hasRuntimeError = lastFailedSectorId === sector.id;
 
                 return (
@@ -672,28 +719,10 @@ export function SettingsPage({
                         ) : null}
                       </label>
 
-                      <label htmlFor={iconInputId}>
-                        <span>图标</span>
-                        <input
-                          aria-describedby={iconError ? iconErrorId : undefined}
-                          aria-invalid={iconError ? true : undefined}
-                          id={iconInputId}
-                          maxLength={4}
-                          value={iconFallback}
-                          onChange={(event) =>
-                            commitDraftChange(
-                              updateSector(draftConfig, sector.id, {
-                                icon: updateIconFallback(sector.icon, event.currentTarget.value),
-                              }),
-                            )
-                          }
-                        />
-                        {iconError ? (
-                          <small className="field-error" id={iconErrorId}>
-                            {iconError}
-                          </small>
-                        ) : null}
-                      </label>
+                      <div className="sector-editor__type" aria-label={`类型：${actionType.label}`}>
+                        <span>类型</span>
+                        <strong>{actionType.label}</strong>
+                      </div>
 
                       <div className="sector-editor__path">
                         <span>{placement.accessibleLabel}</span>
@@ -722,7 +751,7 @@ export function SettingsPage({
                         </button>
                       </div>
                       <details className="sector-editor__adjust-menu">
-                        <summary aria-label={`打开 ${sector.label} 调整操作`}>调整</summary>
+                        <summary aria-label={`打开 ${sector.label} 更多操作`}>更多</summary>
                         <div className="sector-editor__adjust-panel" aria-label={`${sector.label} 调整操作`}>
                           <button
                             className="button button--secondary button--compact"
@@ -1058,6 +1087,36 @@ export function SettingsPage({
                   <h3>高级参数</h3>
                 </div>
                 <div className="settings-list">
+                  <SettingRow icon="material" tone="neutral" title="轮盘大小" description="控制呼出轮盘的整体直径">
+                    <div className="range-control">
+                      <input
+                        aria-label="轮盘大小"
+                        max={WHEEL_SIZE_MAX}
+                        min={minWheelSizePx}
+                        step={10}
+                        type="range"
+                        value={draftConfig.wheel.sizePx}
+                        onChange={(event) => updateWheelGeometry({ sizePx: Number(event.currentTarget.value) })}
+                      />
+                      <output>{draftConfig.wheel.sizePx}px</output>
+                    </div>
+                  </SettingRow>
+
+                  <SettingRow icon="material" tone="neutral" title="扇区宽度" description="控制方向扇区的可点击和可视范围">
+                    <div className="range-control">
+                      <input
+                        aria-label="扇区宽度"
+                        max={maxOuterRadiusPx}
+                        min={minOuterRadiusPx}
+                        step={2}
+                        type="range"
+                        value={draftConfig.wheel.outerRadiusPx}
+                        onChange={(event) => updateWheelGeometry({ outerRadiusPx: Number(event.currentTarget.value) })}
+                      />
+                      <output>{sectorThicknessPx}px</output>
+                    </div>
+                  </SettingRow>
+
                   <SettingRow icon="opacity" tone="cyan" title="轮盘透明度" description="最低保留 35% 可读性">
                     <div className="range-control">
                       <input
@@ -1367,10 +1426,6 @@ function getSectorLabelError(label: string): string | null {
   return label.trim() ? null : "名称不能为空";
 }
 
-function getSectorIconError(icon: string): string | null {
-  return icon.trim() ? null : "图标不能为空";
-}
-
 function SectorIconPreview({ icon }: { icon: OrbitConfig["menus"][number]["sectors"][number]["icon"] }) {
   const [imageFailed, setImageFailed] = useState(false);
   const fallback = getIconFallback(icon);
@@ -1401,7 +1456,7 @@ function toErrorStatus(error: unknown, message: string, recovery: string): Setti
   return {
     tone: "error",
     message,
-    detail: detail === message ? recovery : `${detail} ${recovery}`,
+    detail: detail === message || detail === recovery ? recovery : `${detail} ${recovery}`,
   };
 }
 
@@ -1471,6 +1526,35 @@ function describeAction(action: OrbitConfig["menus"][number]["sectors"][number][
     case "command":
       return `命令：${action.program}`;
   }
+}
+
+function describeActionType(action: OrbitConfig["menus"][number]["sectors"][number]["action"]): { label: string } {
+  switch (action.type) {
+    case "app":
+      return { label: "应用" };
+    case "file":
+      return { label: isFolderPath(action.path) ? "文件夹" : "文档" };
+    case "url":
+      return { label: "网址" };
+    case "hotkey":
+      return { label: "快捷键" };
+    case "command":
+      return { label: "命令" };
+  }
+}
+
+function isFolderPath(path: string): boolean {
+  const trimmedPath = path.trim();
+  if (!trimmedPath) {
+    return false;
+  }
+
+  if (/[\\/]$/.test(trimmedPath)) {
+    return true;
+  }
+
+  const fileName = trimmedPath.replace(/\\/g, "/").split("/").pop() ?? "";
+  return !fileName.includes(".");
 }
 
 function canOpenSystemFilePicker(

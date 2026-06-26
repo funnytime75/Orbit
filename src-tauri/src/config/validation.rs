@@ -5,6 +5,8 @@ use std::path::Path;
 
 const MAX_ICON_SOURCE_CHARS: usize = 256_000;
 const PNG_ICON_DATA_URL_PREFIX: &str = "data:image/png;base64,";
+const WHEEL_EDGE_PADDING_PX: u16 = 18;
+const WHEEL_MIN_SECTOR_THICKNESS_PX: u16 = 48;
 
 pub fn validate_config(config: &OrbitConfig) -> Result<(), OrbitError> {
     if config.version != 1 {
@@ -29,6 +31,17 @@ pub fn validate_config(config: &OrbitConfig) -> Result<(), OrbitError> {
 
     if config.wheel.inner_radius_px >= config.wheel.outer_radius_px {
         return Err(invalid("wheel.innerRadiusPx 必须小于 wheel.outerRadiusPx"));
+    }
+    let max_outer_radius = config.wheel.size_px / 2 - WHEEL_EDGE_PADDING_PX;
+    if config.wheel.outer_radius_px > max_outer_radius {
+        return Err(invalid("wheel.outerRadiusPx 不能超过 wheel.sizePx 允许范围"));
+    }
+    if config.wheel.outer_radius_px - config.wheel.inner_radius_px
+        < WHEEL_MIN_SECTOR_THICKNESS_PX
+    {
+        return Err(invalid(format!(
+            "wheel.outerRadiusPx 扇区宽度不能小于 {WHEEL_MIN_SECTOR_THICKNESS_PX}px"
+        )));
     }
     validate_appearance(config)?;
 
@@ -258,6 +271,27 @@ mod tests {
         let error = validate_config(&config).expect_err("应该拒绝无效半径");
 
         assert!(error.to_string().contains("innerRadiusPx"));
+    }
+
+    #[test]
+    fn rejects_too_thin_sector_width() {
+        let mut config = default_config();
+        config.wheel.outer_radius_px = config.wheel.inner_radius_px + 20;
+
+        let error = validate_config(&config).expect_err("应该拒绝过窄扇区");
+
+        assert!(error.to_string().contains("扇区宽度不能小于 48px"));
+    }
+
+    #[test]
+    fn rejects_outer_radius_outside_wheel_size() {
+        let mut config = default_config();
+        config.wheel.size_px = 240;
+        config.wheel.outer_radius_px = 156;
+
+        let error = validate_config(&config).expect_err("应该拒绝超出尺寸的外半径");
+
+        assert!(error.to_string().contains("outerRadiusPx"));
     }
 
     #[test]

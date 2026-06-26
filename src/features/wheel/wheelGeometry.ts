@@ -28,8 +28,10 @@ export function getActiveSectorIndex(
   sectorCount: number,
   startAngleDeg: number,
   innerRadiusPx: number,
+  outerRadiusPx: number,
 ): number | null {
-  if (getDistance(center, cursor) < innerRadiusPx) {
+  const distance = getDistance(center, cursor);
+  if (distance < innerRadiusPx || distance > outerRadiusPx) {
     return null;
   }
 

@@ -31,8 +31,13 @@ function App() {
   const [previewSectorIndex, setPreviewSectorIndex] = useState<number | null>(null);
   const [lastFailedSectorId, setLastFailedSectorId] = useState<string | null>(null);
   const [failedBackgroundImagePath, setFailedBackgroundImagePath] = useState<string | null>(null);
+  const [isRecoveryDraftPending, setIsRecoveryDraftPending] = useState(false);
+  const isMainWindowMountedRef = useRef(true);
 
-  const isDirty = useMemo(() => JSON.stringify(savedConfig) !== JSON.stringify(draftConfig), [savedConfig, draftConfig]);
+  const isDirty = useMemo(
+    () => isRecoveryDraftPending || JSON.stringify(savedConfig) !== JSON.stringify(draftConfig),
+    [draftConfig, isRecoveryDraftPending, savedConfig],
+  );
   const isConfigPreviewAvailable = useMemo(isDebugConfigPreviewAvailable, []);
   const draftBackgroundType = draftConfig.wheel.appearance.background.type;
   const draftBackgroundImagePath = draftConfig.wheel.appearance.background.imagePath;
@@ -43,6 +48,13 @@ function App() {
     }
 
     setWindowLabel(getCurrentWindow().label);
+  }, []);
+
+  useEffect(() => {
+    isMainWindowMountedRef.current = true;
+    return () => {
+      isMainWindowMountedRef.current = false;
+    };
   }, []);
 
   const refreshRuntimeStatus = useCallback(async (options: { clearResolvedRuntimeError?: boolean } = {}) => {
@@ -57,34 +69,91 @@ function App() {
     }
   }, []);
 
-  useEffect(() => {
-    let disposed = false;
+  const handleUseDefaultDraft = useCallback(() => {
+    setSavedConfig(defaultOrbitConfig);
+    setDraftConfig(defaultOrbitConfig);
+    setRuntimeStatus(null);
+    setLastFailedSectorId(null);
+    setFailedBackgroundImagePath(null);
+    setIsRecoveryDraftPending(true);
+    setStatus({
+      tone: "warning",
+      message: "已使用默认草稿",
+      detail: "保存后才会覆盖本地配置。当前仍需确认原配置文件是否可读取。",
+      secondaryLabel: "待保存",
+    });
+  }, []);
 
-    async function bootstrap() {
-      try {
-        const [loadedConfig, status] = await Promise.all([loadConfig(), getRuntimeStatus()]);
-        if (!disposed) {
-          setSavedConfig(loadedConfig);
-          setDraftConfig(loadedConfig);
-          setRuntimeStatus(status);
-          setStatus({
-            tone: "success",
-            message: "配置已加载",
-            detail: "当前轮盘设置已从本地配置同步。",
-          });
-        }
-      } catch (error) {
-        if (!disposed) {
-          setStatus(toErrorStatus(error, "配置加载失败", "已保留默认草稿，请检查配置文件后重试。"));
-        }
-      }
+  const loadInitialState = useCallback(async () => {
+    setStatus({
+      tone: "info",
+      message: "正在加载配置",
+      detail: "正在读取本地配置和运行状态。",
+      secondaryLabel: "读取中",
+    });
+
+    if (!isTauri()) {
+      setSavedConfig(defaultOrbitConfig);
+      setDraftConfig(defaultOrbitConfig);
+      setRuntimeStatus(null);
+      setLastFailedSectorId(null);
+      setFailedBackgroundImagePath(null);
+      setIsRecoveryDraftPending(false);
+      setStatus({
+        tone: "info",
+        message: "浏览器预览",
+        detail: "当前预览使用默认草稿。系统文件选择、运行应用和运行状态只在 Orbit 桌面窗口中可用。",
+        secondaryLabel: "默认草稿",
+      });
+      return;
     }
 
-    void bootstrap();
-    return () => {
-      disposed = true;
-    };
-  }, []);
+    try {
+      const [loadedConfig, status] = await Promise.all([loadConfig(), getRuntimeStatus()]);
+      if (!isMainWindowMountedRef.current) {
+        return;
+      }
+
+      setSavedConfig(loadedConfig);
+      setDraftConfig(loadedConfig);
+      setRuntimeStatus(status);
+      setLastFailedSectorId(null);
+      setFailedBackgroundImagePath(null);
+      setIsRecoveryDraftPending(false);
+      setStatus({
+        tone: "success",
+        message: "配置已加载",
+        detail: "当前轮盘设置已从本地配置同步。",
+      });
+    } catch (error) {
+      if (!isMainWindowMountedRef.current) {
+        return;
+      }
+
+      setRuntimeStatus(null);
+      setStatus({
+        ...toErrorStatus(error, "配置加载失败", "已保留默认草稿。请重试读取，或先使用默认草稿继续配置。"),
+        actions: [
+          {
+            label: "重试读取",
+            onClick: () => {
+              void loadInitialState();
+            },
+            variant: "primary",
+          },
+          {
+            label: "使用默认草稿",
+            onClick: handleUseDefaultDraft,
+          },
+        ],
+        secondaryLabel: null,
+      });
+    }
+  }, [handleUseDefaultDraft]);
+
+  useEffect(() => {
+    void loadInitialState();
+  }, [loadInitialState]);
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -105,6 +174,7 @@ function App() {
       const saved = await saveConfig(draftConfig);
       setSavedConfig(saved);
       setDraftConfig(saved);
+      setIsRecoveryDraftPending(false);
       setStatus({
         tone: "success",
         message: "配置已保存",
@@ -122,6 +192,7 @@ function App() {
     setDraftConfig(savedConfig);
     setLastFailedSectorId(null);
     setFailedBackgroundImagePath(null);
+    setIsRecoveryDraftPending(false);
     setStatus({
       tone: "info",
       message: "已撤销未保存更改",
@@ -133,6 +204,7 @@ function App() {
     setDraftConfig(defaultOrbitConfig);
     setLastFailedSectorId(null);
     setFailedBackgroundImagePath(null);
+    setIsRecoveryDraftPending(false);
     setStatus({
       tone: "warning",
       message: "已恢复默认配置草稿",
@@ -212,7 +284,7 @@ function App() {
   }
 
   const mainMenu = draftConfig.menus[0];
-  const runtimeLabel = getRuntimeLabel(runtimeStatus);
+  const runtimeLabel = getRuntimeLabel(runtimeStatus, status);
   const wheelDescriptionId = "wheel-preview-description";
   const appTheme = resolveAppTheme(draftConfig.wheel.theme);
   const themeToggleTarget = appTheme === "dark" ? "light" : "dark";
@@ -232,10 +304,6 @@ function App() {
           <a className="app-nav__item app-nav__item--active" href="#settings-title" aria-current="page">
             <NavIcon name="home" />
             <span>首页</span>
-          </a>
-          <a className="app-nav__item" href="#settings-title">
-            <NavIcon name="preset" />
-            <span>预设管理</span>
           </a>
         </nav>
         <div className="app-rail__footer">
@@ -339,7 +407,7 @@ function App() {
   );
 }
 
-function NavIcon({ name }: { name: "home" | "preset" | "theme-dark" | "theme-light" }) {
+function NavIcon({ name }: { name: "home" | "theme-dark" | "theme-light" }) {
   switch (name) {
     case "home":
       return (
@@ -347,18 +415,6 @@ function NavIcon({ name }: { name: "home" | "preset" | "theme-dark" | "theme-lig
           <path d="M4 11.5 12 4l8 7.5" />
           <path d="M6.5 10v9h11v-9" />
           <path d="M10 19v-5h4v5" />
-        </svg>
-      );
-    case "preset":
-      return (
-        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-          <path d="M8 7h8" />
-          <path d="M7 12h10" />
-          <path d="M9 17h6" />
-          <path d="M5 5h2v2H5z" />
-          <path d="M17 5h2v2h-2z" />
-          <path d="M5 17h2v2H5z" />
-          <path d="M17 17h2v2h-2z" />
         </svg>
       );
     case "theme-dark":
@@ -655,8 +711,16 @@ function WheelSemanticSummary({
   );
 }
 
-function getRuntimeLabel(runtimeStatus: RuntimeStatus | null): string {
+function getRuntimeLabel(runtimeStatus: RuntimeStatus | null, status: SettingsStatus): string {
   if (!runtimeStatus) {
+    if (status.message === "浏览器预览") {
+      return "浏览器预览";
+    }
+
+    if (status.tone === "error") {
+      return "状态不可用";
+    }
+
     return "正在读取状态";
   }
 
@@ -668,7 +732,7 @@ function toErrorStatus(error: unknown, message: string, recovery: string): Setti
   return {
     tone: "error",
     message,
-    detail: detail === message ? recovery : `${detail} ${recovery}`,
+    detail: detail === message || detail === recovery ? recovery : `${detail} ${recovery}`,
   };
 }
 

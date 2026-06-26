@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { normalizeShortcut } from "./shortcutRecorder";
+import {
+  WHEEL_MIN_SECTOR_THICKNESS_PX,
+  WHEEL_OUTER_RADIUS_MIN,
+  WHEEL_SIZE_MAX,
+  WHEEL_SIZE_MIN,
+  getMaxOuterRadius,
+} from "./wheelLimits";
 
 const idSchema = z
   .string()
@@ -137,9 +144,13 @@ export const orbitConfigSchema = z
       directionalQuickLaunch: z.boolean().default(false),
     }),
     wheel: z.object({
-      sizePx: z.number().int().min(240, "轮盘尺寸不能小于 240px").max(720, "轮盘尺寸不能大于 720px"),
+      sizePx: z
+        .number()
+        .int()
+        .min(WHEEL_SIZE_MIN, `轮盘尺寸不能小于 ${WHEEL_SIZE_MIN}px`)
+        .max(WHEEL_SIZE_MAX, `轮盘尺寸不能大于 ${WHEEL_SIZE_MAX}px`),
       innerRadiusPx: z.number().int().min(12, "内半径不能小于 12px"),
-      outerRadiusPx: z.number().int().min(60, "外半径不能小于 60px"),
+      outerRadiusPx: z.number().int().min(WHEEL_OUTER_RADIUS_MIN, `外半径不能小于 ${WHEEL_OUTER_RADIUS_MIN}px`),
       startAngleDeg: z.number().min(-360, "起始角度不能小于 -360").max(360, "起始角度不能大于 360"),
       animationMs: z.number().int().min(0, "动画时间不能小于 0ms").max(500, "动画时间不能大于 500ms"),
       theme: z.enum(["system", "light", "dark"]),
@@ -156,6 +167,21 @@ export const orbitConfigSchema = z
         code: z.ZodIssueCode.custom,
         message: "轮盘内半径必须小于外半径",
         path: ["wheel", "innerRadiusPx"],
+      });
+    } else if (config.wheel.outerRadiusPx - config.wheel.innerRadiusPx < WHEEL_MIN_SECTOR_THICKNESS_PX) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `扇区宽度不能小于 ${WHEEL_MIN_SECTOR_THICKNESS_PX}px`,
+        path: ["wheel", "outerRadiusPx"],
+      });
+    }
+
+    const maxOuterRadiusPx = getMaxOuterRadius(config.wheel.sizePx);
+    if (config.wheel.outerRadiusPx > maxOuterRadiusPx) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "轮盘外半径不能超过轮盘尺寸允许范围",
+        path: ["wheel", "outerRadiusPx"],
       });
     }
   });

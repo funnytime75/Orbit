@@ -75,6 +75,21 @@ describe("validateOrbitConfig", () => {
     expect(() => validateOrbitConfig(config)).toThrow("轮盘内半径必须小于外半径");
   });
 
+  it("拒绝扇区宽度过窄", () => {
+    const config = structuredClone(defaultOrbitConfig);
+    config.wheel.outerRadiusPx = config.wheel.innerRadiusPx + 20;
+
+    expect(() => validateOrbitConfig(config)).toThrow("扇区宽度不能小于 48px");
+  });
+
+  it("拒绝外半径超过轮盘尺寸允许范围", () => {
+    const config = structuredClone(defaultOrbitConfig);
+    config.wheel.sizePx = 240;
+    config.wheel.outerRadiusPx = 156;
+
+    expect(() => validateOrbitConfig(config)).toThrow("轮盘外半径不能超过轮盘尺寸允许范围");
+  });
+
   it("拒绝不可读的轮盘外观透明度", () => {
     const config = structuredClone(defaultOrbitConfig);
     config.wheel.appearance.opacity = 0.2;

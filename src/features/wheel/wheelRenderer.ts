@@ -45,6 +45,7 @@ export function drawWheel({
     menu.sectors.length,
     wheel.startAngleDeg,
     wheel.innerRadiusPx,
+    wheel.outerRadiusPx,
   );
   const sectorAngle = (Math.PI * 2) / menu.sectors.length;
   const startAngle = (wheel.startAngleDeg * Math.PI) / 180;
@@ -54,8 +55,8 @@ export function drawWheel({
     const to = from + sectorAngle;
 
     context.beginPath();
-    context.moveTo(center.x, center.y);
     context.arc(center.x, center.y, wheel.outerRadiusPx, from, to);
+    context.arc(center.x, center.y, wheel.innerRadiusPx, to, from, true);
     context.closePath();
     if (index === activeIndex || !transparentRuntime) {
       context.fillStyle = index === activeIndex ? appearance.activeColor : getSectorFill(wheel, renderMode);

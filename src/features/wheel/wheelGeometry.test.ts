@@ -30,7 +30,15 @@ describe("wheelGeometry", () => {
   });
 
   it("中心死区不选中扇区", () => {
-    expect(getActiveSectorIndex({ x: 0, y: 0 }, { x: 4, y: 0 }, 4, -90, 10)).toBeNull();
+    expect(getActiveSectorIndex({ x: 0, y: 0 }, { x: 4, y: 0 }, 4, -90, 10, 80)).toBeNull();
+  });
+
+  it("外半径之外不选中扇区", () => {
+    expect(getActiveSectorIndex({ x: 0, y: 0 }, { x: 96, y: 0 }, 4, -90, 10, 80)).toBeNull();
+  });
+
+  it("在有效扇区宽度内选中方向", () => {
+    expect(getActiveSectorIndex({ x: 0, y: 0 }, { x: 42, y: 0 }, 4, -90, 10, 80)).toBe(1);
   });
 
   it("按中心移动方向映射扇区", () => {

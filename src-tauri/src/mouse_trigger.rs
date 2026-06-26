@@ -357,6 +357,7 @@ mod platform {
                 .wheel
                 .inner_radius_px
                 .max(config.trigger.cancel_distance_px),
+            config.wheel.outer_radius_px,
         )?;
         menu.sectors.get(index).map(|sector| sector.action.clone())
     }
@@ -367,12 +368,14 @@ mod platform {
         sector_count: usize,
         start_angle_deg: i16,
         inner_radius_px: u16,
+        outer_radius_px: u16,
     ) -> Option<usize> {
         if sector_count == 0 {
             return None;
         }
 
-        if distance(origin, cursor) < f64::from(inner_radius_px) {
+        let distance = distance(origin, cursor);
+        if distance < f64::from(inner_radius_px) || distance > f64::from(outer_radius_px) {
             return None;
         }
 
@@ -456,11 +459,11 @@ mod tests {
         let origin = ScreenPoint { x: 100, y: 100 };
 
         assert_eq!(
-            selected_sector_index(origin, ScreenPoint { x: 100, y: 40 }, 4, -90, 42),
+            selected_sector_index(origin, ScreenPoint { x: 100, y: 40 }, 4, -90, 42, 156),
             Some(0)
         );
         assert_eq!(
-            selected_sector_index(origin, ScreenPoint { x: 160, y: 100 }, 4, -90, 42),
+            selected_sector_index(origin, ScreenPoint { x: 160, y: 100 }, 4, -90, 42, 156),
             Some(1)
         );
     }
@@ -470,7 +473,17 @@ mod tests {
         let origin = ScreenPoint { x: 100, y: 100 };
 
         assert_eq!(
-            selected_sector_index(origin, ScreenPoint { x: 110, y: 100 }, 4, -90, 42),
+            selected_sector_index(origin, ScreenPoint { x: 110, y: 100 }, 4, -90, 42, 156),
+            None
+        );
+    }
+
+    #[test]
+    fn outer_radius_cancels_selection() {
+        let origin = ScreenPoint { x: 100, y: 100 };
+
+        assert_eq!(
+            selected_sector_index(origin, ScreenPoint { x: 300, y: 100 }, 4, -90, 42, 156),
             None
         );
     }

@@ -256,7 +256,14 @@ export function WheelCanvas({
 
   function getSectorIndexAtPoint(point: Point): number | null {
     const center = { x: wheel.sizePx / 2, y: wheel.sizePx / 2 };
-    const selectedIndex = getActiveSectorIndex(center, point, menu.sectors.length, wheel.startAngleDeg, wheel.innerRadiusPx);
+    const selectedIndex = getActiveSectorIndex(
+      center,
+      point,
+      menu.sectors.length,
+      wheel.startAngleDeg,
+      wheel.innerRadiusPx,
+      wheel.outerRadiusPx,
+    );
     return getValidSectorIndex(selectedIndex, menu.sectors.length);
   }
 
