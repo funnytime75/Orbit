@@ -7,6 +7,7 @@ export interface RuntimeStatus {
   configLoaded: boolean;
   activeSession: boolean;
   lastActionError: string | null;
+  configLoadError: string | null;
 }
 
 export async function loadConfig(): Promise<OrbitConfig> {

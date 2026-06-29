@@ -120,17 +120,43 @@ function App() {
       setLastFailedSectorId(null);
       setFailedBackgroundImagePath(null);
       setIsRecoveryDraftPending(false);
-      setStatus({
-        tone: "success",
-        message: "配置已加载",
-        detail: "当前轮盘设置已从本地配置同步。",
-      });
+      setStatus(
+        status.configLoaded
+          ? {
+              tone: "success",
+              message: "配置已加载",
+              detail: "当前轮盘设置已从本地配置同步。",
+            }
+          : {
+              tone: "error",
+              message: "配置加载失败",
+              detail: status.configLoadError ?? "已使用默认草稿。请重试读取，或先使用默认草稿继续配置。",
+              secondaryLabel: "默认草稿",
+              actions: [
+                {
+                  label: "重试读取",
+                  onClick: () => {
+                    void loadInitialState();
+                  },
+                },
+                {
+                  label: "使用默认草稿",
+                  onClick: handleUseDefaultDraft,
+                },
+              ],
+            },
+      );
     } catch (error) {
       if (!isMainWindowMountedRef.current) {
         return;
       }
 
-      setRuntimeStatus(null);
+      const fallbackRuntimeStatus = await getRuntimeStatus().catch(() => null);
+      if (!isMainWindowMountedRef.current) {
+        return;
+      }
+
+      setRuntimeStatus(fallbackRuntimeStatus);
       setStatus({
         ...toErrorStatus(error, "配置加载失败", "已保留默认草稿。请重试读取，或先使用默认草稿继续配置。"),
         actions: [
@@ -350,6 +376,22 @@ function App() {
               </div>
             </div>
             <WheelSemanticSummary descriptionId={wheelDescriptionId} menu={mainMenu} startAngleDeg={draftConfig.wheel.startAngleDeg} />
+            {runtimeStatus?.configLoadError ? (
+              <div className="status-banner status-banner--error" role="alert" aria-live="assertive">
+                <span>
+                  <strong>配置加载失败</strong>
+                  <small>{runtimeStatus.configLoadError}</small>
+                </span>
+                <div className="status-banner__actions" aria-label="配置加载错误恢复操作">
+                  <button className="button button--secondary button--compact" type="button" onClick={() => void loadInitialState()}>
+                    重试读取
+                  </button>
+                  <button className="button button--secondary button--compact" type="button" onClick={handleUseDefaultDraft}>
+                    使用默认草稿
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {runtimeStatus?.lastActionError ? (
               <div className="status-banner status-banner--error" role="alert" aria-live="assertive">
                 <span>
@@ -727,6 +769,10 @@ function getRuntimeLabel(runtimeStatus: RuntimeStatus | null, status: SettingsSt
     return "正在读取状态";
   }
 
+  if (!runtimeStatus.configLoaded) {
+    return "配置异常";
+  }
+
   return runtimeStatus.enabled ? "配置已启用" : "触发已停用";
 }
 
@@ -737,6 +783,10 @@ function getRuntimeTone(runtimeStatus: RuntimeStatus | null, status: SettingsSta
 
   if (!runtimeStatus) {
     return status.message === "浏览器预览" ? "info" : "warning";
+  }
+
+  if (!runtimeStatus.configLoaded) {
+    return "error";
   }
 
   return runtimeStatus.enabled ? "success" : "warning";

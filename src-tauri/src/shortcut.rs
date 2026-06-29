@@ -1,6 +1,7 @@
 use crate::error::OrbitError;
 use crate::make_wheel_window_transparent;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
@@ -19,6 +20,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 static SHORTCUT_WATCH_TOKEN: AtomicU64 = AtomicU64::new(0);
+static REGISTERED_SHORTCUT: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 
 #[derive(Clone, Copy, Debug)]
 enum WatchKey {
@@ -28,6 +30,33 @@ enum WatchKey {
 
 pub fn sync_trigger_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), OrbitError> {
     let shortcut_keys = parse_shortcut_keys(shortcut)?;
+    let normalized_shortcut = normalize_shortcut(shortcut).expect("已检查快捷键");
+    let registered_shortcut = REGISTERED_SHORTCUT.get_or_init(|| Mutex::new(None));
+    let mut registered_shortcut = registered_shortcut
+        .lock()
+        .map_err(|error| OrbitError::Shortcut(format!("读取已注册快捷键失败：{error}")))?;
+    let previous_shortcut = registered_shortcut.clone();
+
+    if let Err(error) = register_shortcut_keys(app, shortcut_keys) {
+        if let Some(previous_shortcut) = previous_shortcut.as_deref() {
+            if register_shortcut(app, previous_shortcut).is_err() {
+                *registered_shortcut = None;
+            }
+        }
+        return Err(error);
+    }
+
+    *registered_shortcut = Some(normalized_shortcut);
+
+    Ok(())
+}
+
+fn register_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), OrbitError> {
+    let shortcut_keys = parse_shortcut_keys(shortcut)?;
+    register_shortcut_keys(app, shortcut_keys)
+}
+
+fn register_shortcut_keys(app: &AppHandle, shortcut_keys: ShortcutKeys) -> Result<(), OrbitError> {
     let shortcut = Shortcut::new(
         Some(shortcut_keys.modifiers),
         shortcut_keys.code.expect("已检查主按键"),

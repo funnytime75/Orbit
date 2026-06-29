@@ -34,11 +34,11 @@ pub fn validate_config(config: &OrbitConfig) -> Result<(), OrbitError> {
     }
     let max_outer_radius = config.wheel.size_px / 2 - WHEEL_EDGE_PADDING_PX;
     if config.wheel.outer_radius_px > max_outer_radius {
-        return Err(invalid("wheel.outerRadiusPx 不能超过 wheel.sizePx 允许范围"));
+        return Err(invalid(
+            "wheel.outerRadiusPx 不能超过 wheel.sizePx 允许范围",
+        ));
     }
-    if config.wheel.outer_radius_px - config.wheel.inner_radius_px
-        < WHEEL_MIN_SECTOR_THICKNESS_PX
-    {
+    if config.wheel.outer_radius_px - config.wheel.inner_radius_px < WHEEL_MIN_SECTOR_THICKNESS_PX {
         return Err(invalid(format!(
             "wheel.outerRadiusPx 扇区宽度不能小于 {WHEEL_MIN_SECTOR_THICKNESS_PX}px"
         )));
@@ -211,25 +211,10 @@ fn validate_action(action: &ActionConfig, path: String) -> Result<(), OrbitError
             Err(invalid(format!("{path}.program 不能为空")))
         }
         ActionConfig::App { program, .. } => validate_app_program_shape(program),
-        ActionConfig::File { path: file_path } if file_path.trim().is_empty() => {
-            Err(invalid(format!("{path}.path 不能为空")))
-        }
-        ActionConfig::Url { url }
-            if !(url.starts_with("http://") || url.starts_with("https://")) =>
-        {
-            Err(invalid(format!("{path}.url 只允许 http 或 https")))
-        }
-        ActionConfig::Hotkey { keys }
-            if keys.is_empty() || keys.iter().any(|key| key.trim().is_empty()) =>
-        {
-            Err(invalid(format!("{path}.keys 不能为空")))
-        }
-        ActionConfig::Command {
-            program, confirm, ..
-        } if program.trim().is_empty() || !confirm => Err(invalid(format!(
-            "{path}.program 不能为空且 confirm 必须为 true"
-        ))),
-        _ => Ok(()),
+        ActionConfig::File { .. }
+        | ActionConfig::Url { .. }
+        | ActionConfig::Hotkey { .. }
+        | ActionConfig::Command { .. } => Err(invalid(format!("{path}.type 当前只支持 app 动作"))),
     }
 }
 
@@ -403,6 +388,18 @@ mod tests {
         let error = validate_config(&config).expect_err("应该拒绝非 exe 应用路径");
 
         assert!(error.to_string().contains(".exe"));
+    }
+
+    #[test]
+    fn rejects_unsupported_action_type() {
+        let mut config = default_config();
+        config.menus[0].sectors[0].action = crate::config::model::ActionConfig::Url {
+            url: "https://example.com".to_string(),
+        };
+
+        let error = validate_config(&config).expect_err("应该拒绝未实现动作");
+
+        assert!(error.to_string().contains("当前只支持 app 动作"));
     }
 
     #[test]

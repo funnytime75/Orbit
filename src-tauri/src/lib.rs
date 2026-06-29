@@ -31,11 +31,18 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let config_path = config_path(app.handle())?;
+            let mut config_load_error = None;
             let config = load_or_create_config(&config_path).unwrap_or_else(|error| {
-                eprintln!("读取配置失败，已使用默认配置：{error}");
+                let detail = error.to_string();
+                eprintln!("读取配置失败，已使用默认配置：{detail}");
+                config_load_error = Some(detail);
                 default_config()
             });
-            app.manage(AppState::new(config.clone(), config_path));
+            app.manage(AppState::new(
+                config.clone(),
+                config_path,
+                config_load_error,
+            ));
             app.manage(AppStateCleanup);
 
             #[cfg(desktop)]
@@ -112,9 +119,19 @@ fn save_config(
     config: OrbitConfig,
 ) -> CommandResult<OrbitConfig> {
     validate_orbit_config(&config).map_err(CommandError::from)?;
+    let _save_guard = state.save_lock.lock().map_err(state_error)?;
+    let previous_config = state.config.read().map_err(state_error)?.clone();
+
     sync_autostart(&app, config.startup.launch_at_login).map_err(CommandError::from)?;
-    sync_trigger_shortcut(&app, &config.trigger.shortcut).map_err(CommandError::from)?;
-    save_config_file(&state.config_path, &config).map_err(CommandError::from)?;
+    sync_trigger_shortcut(&app, &config.trigger.shortcut).map_err(|error| {
+        let _ = sync_autostart(&app, previous_config.startup.launch_at_login);
+        CommandError::from(error)
+    })?;
+    save_config_file(&state.config_path, &config).map_err(|error| {
+        let _ = sync_autostart(&app, previous_config.startup.launch_at_login);
+        let _ = sync_trigger_shortcut(&app, &previous_config.trigger.shortcut);
+        CommandError::from(error)
+    })?;
 
     {
         let mut current_config = state.config.write().map_err(state_error)?;
@@ -125,6 +142,7 @@ fn save_config(
         let mut runtime = state.runtime.write().map_err(state_error)?;
         runtime.enabled = config.enabled;
         runtime.config_loaded = true;
+        runtime.config_load_error = None;
     }
 
     Ok(config)

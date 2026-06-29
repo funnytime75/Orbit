@@ -41,6 +41,17 @@ describe("validateOrbitConfig", () => {
     expect(() => validateOrbitConfig(config)).toThrow("首版只支持 Windows .exe 应用");
   });
 
+  it("拒绝当前未支持的动作类型", () => {
+    const config = structuredClone(defaultOrbitConfig);
+    type SectorAction = (typeof config.menus)[number]["sectors"][number]["action"];
+    config.menus[0].sectors[0].action = {
+      type: "url",
+      url: "https://example.com",
+    } as unknown as SectorAction;
+
+    expect(() => validateOrbitConfig(config)).toThrow("当前只支持应用动作");
+  });
+
   it("接受 PNG data URL 应用图标", () => {
     const config = structuredClone(defaultOrbitConfig);
     config.menus[0].sectors[0].icon = {

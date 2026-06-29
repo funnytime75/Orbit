@@ -1634,47 +1634,11 @@ function describeTriggerStatus({
 }
 
 function describeAction(action: OrbitConfig["menus"][number]["sectors"][number]["action"]): string {
-  switch (action.type) {
-    case "app":
-      return action.program;
-    case "file":
-      return `文件：${action.path}`;
-    case "url":
-      return `网址：${action.url}`;
-    case "hotkey":
-      return `快捷键：${action.keys.join(" + ")}`;
-    case "command":
-      return `命令：${action.program}`;
-  }
+  return action.program;
 }
 
 function describeActionType(action: OrbitConfig["menus"][number]["sectors"][number]["action"]): { label: string } {
-  switch (action.type) {
-    case "app":
-      return { label: "应用" };
-    case "file":
-      return { label: isFolderPath(action.path) ? "文件夹" : "文档" };
-    case "url":
-      return { label: "网址" };
-    case "hotkey":
-      return { label: "快捷键" };
-    case "command":
-      return { label: "命令" };
-  }
-}
-
-function isFolderPath(path: string): boolean {
-  const trimmedPath = path.trim();
-  if (!trimmedPath) {
-    return false;
-  }
-
-  if (/[\\/]$/.test(trimmedPath)) {
-    return true;
-  }
-
-  const fileName = trimmedPath.replace(/\\/g, "/").split("/").pop() ?? "";
-  return !fileName.includes(".");
+  return { label: action.type === "app" ? "应用" : "未支持" };
 }
 
 function canOpenSystemFilePicker(

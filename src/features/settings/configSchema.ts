@@ -30,37 +30,16 @@ const iconSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-const actionSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("app"),
-    program: z
-      .string()
-      .min(1, "应用程序不能为空")
-      .refine((value) => value.trim().toLowerCase().endsWith(".exe"), "首版只支持 Windows .exe 应用"),
-    args: z.array(z.string()),
+const actionSchema = z.object({
+  type: z.literal("app", {
+    errorMap: () => ({ message: "当前只支持应用动作" }),
   }),
-  z.object({
-    type: z.literal("file"),
-    path: z.string().min(1, "文件路径不能为空"),
-  }),
-  z.object({
-    type: z.literal("url"),
-    url: z.string().url("URL 格式无效").refine((value) => {
-      const protocol = new URL(value).protocol;
-      return protocol === "http:" || protocol === "https:";
-    }, "URL 只允许 http 或 https"),
-  }),
-  z.object({
-    type: z.literal("hotkey"),
-    keys: z.array(z.string().min(1, "按键不能为空")).min(1, "快捷键不能为空"),
-  }),
-  z.object({
-    type: z.literal("command"),
-    program: z.string().min(1, "命令程序不能为空"),
-    args: z.array(z.string()),
-    confirm: z.literal(true),
-  }),
-]);
+  program: z
+    .string()
+    .min(1, "应用程序不能为空")
+    .refine((value) => value.trim().toLowerCase().endsWith(".exe"), "首版只支持 Windows .exe 应用"),
+  args: z.array(z.string()),
+});
 
 const sectorSchema = z.object({
   id: idSchema,
