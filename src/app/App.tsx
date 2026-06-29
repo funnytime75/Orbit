@@ -293,29 +293,11 @@ function App() {
     }
   }
 
-  function handleToggleTheme() {
-    const nextTheme: OrbitConfig["wheel"]["theme"] = appTheme === "dark" ? "light" : "dark";
-    setDraftConfig({
-      ...draftConfig,
-      wheel: {
-        ...draftConfig.wheel,
-        theme: nextTheme,
-      },
-    });
-    setStatus({
-      tone: "info",
-      message: `已切换设置窗口为${getThemeLabel(nextTheme)}模式`,
-      detail: "保存后会作为设置窗口默认外观。",
-    });
-  }
-
   const mainMenu = draftConfig.menus[0];
   const runtimeLabel = getRuntimeLabel(runtimeStatus, status);
   const runtimeTone = getRuntimeTone(runtimeStatus, status);
   const wheelDescriptionId = "wheel-preview-description";
   const appTheme = resolveAppTheme(draftConfig.wheel.theme);
-  const themeToggleTarget = appTheme === "dark" ? "light" : "dark";
-  const themeToggleLabel = getThemeLabel(themeToggleTarget);
 
   if (windowLabel === "wheel") {
     return <WheelWindow />;
@@ -329,21 +311,9 @@ function App() {
         </div>
         <div className="app-nav" aria-label="当前配置">
           <a className="app-nav__item app-nav__item--active" href="#settings-title" aria-current="page">
-            <NavIcon name="home" />
+            <NavIcon />
             <span>主轮盘</span>
           </a>
-        </div>
-        <div className="app-rail__footer">
-          <button
-            className="app-nav__item app-nav__item--button"
-            type="button"
-            aria-label={`切换设置窗口到${themeToggleLabel}模式`}
-            title={`切换设置窗口到${themeToggleLabel}模式`}
-            onClick={handleToggleTheme}
-          >
-            <NavIcon name={themeToggleTarget === "light" ? "theme-light" : "theme-dark"} />
-            <span>窗口{themeToggleLabel}</span>
-          </button>
         </div>
       </aside>
 
@@ -392,28 +362,6 @@ function App() {
                 </div>
               </div>
             ) : null}
-            {runtimeStatus?.lastActionError ? (
-              <div className="status-banner status-banner--error" role="alert" aria-live="assertive">
-                <span>
-                  <strong>运行时错误</strong>
-                  <small>{runtimeStatus.lastActionError}</small>
-                </span>
-                <div className="status-banner__actions" aria-label="运行时错误恢复操作">
-                  {lastFailedSectorId ? (
-                    <button className="button button--secondary button--compact" type="button" onClick={() => void handleExecuteSector(lastFailedSectorId)}>
-                      重试运行
-                    </button>
-                  ) : null}
-                  <button
-                    className="button button--secondary button--compact"
-                    type="button"
-                    onClick={() => void refreshRuntimeStatus({ clearResolvedRuntimeError: true })}
-                  >
-                    刷新状态
-                  </button>
-                </div>
-              </div>
-            ) : null}
           </aside>
 
           <div className="workspace__side">
@@ -452,37 +400,14 @@ function App() {
   );
 }
 
-function NavIcon({ name }: { name: "home" | "theme-dark" | "theme-light" }) {
-  switch (name) {
-    case "home":
-      return (
-        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-          <path d="M4 11.5 12 4l8 7.5" />
-          <path d="M6.5 10v9h11v-9" />
-          <path d="M10 19v-5h4v5" />
-        </svg>
-      );
-    case "theme-dark":
-      return (
-        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-          <path d="M20.5 14.6A7.3 7.3 0 0 1 9.4 3.5a8 8 0 1 0 11.1 11.1z" />
-        </svg>
-      );
-    case "theme-light":
-      return (
-        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-          <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" />
-          <path d="M4 12h2" />
-          <path d="M18 12h2" />
-          <path d="M12 4v2" />
-          <path d="M12 18v2" />
-          <path d="m6.6 6.6 1.4 1.4" />
-          <path d="m16 16 1.4 1.4" />
-          <path d="m17.4 6.6-1.4 1.4" />
-          <path d="m8 16-1.4 1.4" />
-        </svg>
-      );
-  }
+function NavIcon() {
+  return (
+    <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+      <path d="M4 11.5 12 4l8 7.5" />
+      <path d="M6.5 10v9h11v-9" />
+      <path d="M10 19v-5h4v5" />
+    </svg>
+  );
 }
 
 function resolveAppTheme(theme: OrbitConfig["wheel"]["theme"]): "dark" | "light" {
@@ -497,9 +422,6 @@ function resolveAppTheme(theme: OrbitConfig["wheel"]["theme"]): "dark" | "light"
   return "dark";
 }
 
-function getThemeLabel(theme: "dark" | "light"): string {
-  return theme === "dark" ? "夜间" : "日间";
-}
 function WheelWindow() {
   const [config, setConfig] = useState<OrbitConfig>(defaultOrbitConfig);
   const [runtimeCursor, setRuntimeCursor] = useState<{ x: number; y: number } | null>(null);

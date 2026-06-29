@@ -698,7 +698,7 @@ export function SettingsPage({
               disabled={!canSave}
               title={hasBlockingDraftError ? draftValidationDetail ?? undefined : undefined}
             >
-              {isSaving ? "保存中" : "保存"}
+              {isSaving ? "保存中" : "保存配置"}
             </button>
           </div>
         </div>
@@ -745,12 +745,12 @@ export function SettingsPage({
               <div className="section-heading section-heading--compact">
                 <span>应用</span>
                 <h3>
-                  扇区 {mainMenu.sectors.length}/{MAX_SECTOR_COUNT}
+                  轮盘应用 {mainMenu.sectors.length}/{MAX_SECTOR_COUNT}
                 </h3>
               </div>
 
               <button
-                className="button button--primary"
+                className="button button--secondary"
                 type="button"
                 onClick={handleAddApp}
                 title={mainMenu.sectors.length >= MAX_SECTOR_COUNT ? `主轮盘最多支持 ${MAX_SECTOR_COUNT} 个扇区` : undefined}
@@ -758,6 +758,12 @@ export function SettingsPage({
               >
                 添加应用
               </button>
+            </div>
+
+            <div className="settings-quick-path" aria-label="首次配置路径">
+              <span>添加应用</span>
+              <span>保存配置</span>
+              <span>按住中键测试</span>
             </div>
 
             {pendingDuplicateAppAction ? (
@@ -818,8 +824,8 @@ export function SettingsPage({
                         className="sector-editor__drag-handle"
                         type="button"
                         draggable
-                        aria-label={`拖动 ${sectorLabel} 调整顺序`}
-                        title="拖动排序"
+                        aria-label={`拖动 ${sectorLabel} 排序，或使用方向键上下调整位置`}
+                        title="拖动排序，方向键上下调整位置"
                         onDragStart={(event) => handleSectorDragStart(event, sector.id, index)}
                         onKeyDown={(event) => handleSectorSortKeyDown(event, sector.id, index)}
                       >
@@ -863,32 +869,37 @@ export function SettingsPage({
                         <button
                           className="icon-button"
                           type="button"
+                          aria-label={`${hasRuntimeError ? "重试运行" : "运行"} ${sectorLabel}`}
                           onClick={() => handleExecuteSectorClick(sector.id)}
                           disabled={sector.action.type !== "app"}
                         >
-                          运行
+                          {hasRuntimeError ? "重试运行" : "运行"}
                         </button>
                         <button
                           className="icon-button"
                           type="button"
+                          aria-label={`重新选择 ${sectorLabel} 的应用`}
                           onClick={() => void handleReplaceApp(sector.id)}
                           disabled={sector.action.type !== "app"}
                         >
                           重选
                         </button>
                       </div>
-                      <button
-                        className={
-                          confirmingDeleteSectorId === sector.id
-                            ? "button button--warning button--compact sector-editor__delete"
-                            : "button button--secondary button--compact button--danger sector-editor__delete"
-                        }
-                        type="button"
-                        onClick={() => handleRemoveSector(sector.id)}
-                        disabled={mainMenu.sectors.length <= MIN_SECTOR_COUNT}
-                      >
-                        {confirmingDeleteSectorId === sector.id ? "确认删除" : "删除"}
-                      </button>
+                      <div className="sector-editor__secondary-actions">
+                        <button
+                          className={
+                            confirmingDeleteSectorId === sector.id
+                              ? "button button--warning button--compact sector-editor__delete"
+                              : "button button--quiet button--compact button--danger sector-editor__delete"
+                          }
+                          type="button"
+                          aria-label={`${confirmingDeleteSectorId === sector.id ? "确认删除" : "删除"} ${sectorLabel}`}
+                          onClick={() => handleRemoveSector(sector.id)}
+                          disabled={mainMenu.sectors.length <= MIN_SECTOR_COUNT}
+                        >
+                          {confirmingDeleteSectorId === sector.id ? "确认删除" : "删除"}
+                        </button>
+                      </div>
                     </div>
                   </article>
                 );

@@ -195,7 +195,7 @@ summary:focus-visible {
   top: 0;
   display: grid;
   height: 100vh;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr;
   border-right: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
   background: var(--color-rail-bg);
   padding: 24px 8px;
@@ -214,8 +214,7 @@ summary:focus-visible {
   letter-spacing: 0;
 }
 
-.app-nav,
-.app-rail__footer {
+.app-nav {
   display: grid;
   gap: 10px;
   align-content: start;
@@ -565,6 +564,32 @@ summary:focus-visible {
   gap: 8px;
 }
 
+.settings-quick-path {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface-soft);
+  color: var(--color-ink-muted);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
+}
+
+.settings-quick-path span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-quick-path span:not(:last-child)::after {
+  color: var(--color-ink-soft);
+  content: "→";
+  font-weight: 900;
+}
+
 .section-heading {
   margin-bottom: 12px;
 }
@@ -631,6 +656,16 @@ summary:focus-visible {
   border-color: var(--color-warning-border);
   background: var(--color-warning-bg);
   color: var(--color-ink-strong);
+}
+
+.button--quiet {
+  border-color: transparent;
+  background: transparent;
+}
+
+.button--quiet:hover:not(:disabled) {
+  border-color: var(--color-border-soft);
+  background: var(--color-surface-soft);
 }
 
 .button--danger {
@@ -1344,6 +1379,7 @@ summary:focus-visible {
 
 .sector-editor__actions {
   display: flex;
+  flex-direction: column;
   gap: 6px;
   align-items: center;
   align-content: center;
@@ -1358,8 +1394,21 @@ summary:focus-visible {
   gap: 6px;
 }
 
+.sector-editor__secondary-actions {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
 .sector-editor__delete {
   flex: 0 0 auto;
+  min-height: 30px;
+  color: var(--color-ink-soft);
+}
+
+.sector-editor__delete.button--warning,
+.sector-editor__delete:hover:not(:disabled) {
+  color: var(--color-danger-deep);
 }
 
 .icon-button--compact {
@@ -1441,15 +1490,14 @@ summary:focus-visible {
   .app-rail {
     position: static;
     height: auto;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto 1fr;
     grid-template-rows: auto;
     align-items: center;
     gap: 8px;
     padding: 10px 12px;
   }
 
-  .app-nav,
-  .app-rail__footer {
+  .app-nav {
     display: flex;
     min-width: 0;
     margin: 0;
@@ -1520,6 +1568,15 @@ summary:focus-visible {
     justify-content: flex-start;
   }
 
+  .settings-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    border-bottom: 1px solid var(--color-border-soft);
+    background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+    padding-bottom: 10px;
+  }
+
   .settings-panel {
     padding: 18px 12px;
   }
@@ -1554,6 +1611,24 @@ summary:focus-visible {
   .toolbar-actions .button {
     flex: 1 1 0;
     min-width: 0;
+  }
+
+  .settings-quick-path {
+    align-items: stretch;
+  }
+
+  .settings-quick-path span {
+    flex: 1 1 110px;
+    justify-content: center;
+    min-height: 30px;
+    border-radius: var(--radius-control);
+    background: var(--color-surface-sunken);
+    padding: 5px 7px;
+    text-align: center;
+  }
+
+  .settings-quick-path span:not(:last-child)::after {
+    display: none;
   }
 
   .status-banner {
@@ -1628,9 +1703,13 @@ summary:focus-visible {
   }
 
   .segmented-control,
-  .segmented-control--three,
+  .segmented-control--three {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+  }
+
   .segmented-control--two {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     min-width: 0;
   }
 
@@ -1657,7 +1736,7 @@ summary:focus-visible {
   }
 
   .sector-editor__actions {
-    justify-items: stretch;
+    align-items: stretch;
   }
 
   .sector-editor__primary-actions {
@@ -1673,6 +1752,10 @@ summary:focus-visible {
 
   .sector-editor__primary-actions .icon-button,
   .sector-editor__delete {
+    width: 100%;
+  }
+
+  .sector-editor__secondary-actions {
     width: 100%;
   }
 }
