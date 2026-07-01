@@ -215,7 +215,11 @@ export function WheelCanvas({
   }, [imageIconSectors]);
 
   useEffect(() => {
-    if (previewSectorIndex === null || previewSectorIndex < 0 || previewSectorIndex >= menu.sectors.length) {
+    if (previewSectorIndex === null) {
+      resetCursorToCenter();
+      return;
+    }
+    if (previewSectorIndex < 0 || previewSectorIndex >= menu.sectors.length) {
       return;
     }
 
@@ -373,9 +377,11 @@ export function WheelCanvas({
 
   function getCanvasPoint(event: React.MouseEvent<HTMLCanvasElement>): Point {
     const rect = event.currentTarget.getBoundingClientRect();
+    const scaleX = rect.width > 0 ? wheel.sizePx / rect.width : 1;
+    const scaleY = rect.height > 0 ? wheel.sizePx / rect.height : 1;
     return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
+      x: (event.clientX - rect.left) * scaleX,
+      y: (event.clientY - rect.top) * scaleY,
     };
   }
 
@@ -411,6 +417,11 @@ export function WheelCanvas({
           }
         }}
         onKeyDown={handleKeyboardPreview}
+        onMouseLeave={() => {
+          if (isInteractive) {
+            resetCursorToCenter();
+          }
+        }}
         onMouseMove={(event) => {
           if (!isInteractive) {
             return;

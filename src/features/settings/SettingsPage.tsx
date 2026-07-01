@@ -741,16 +741,13 @@ export function SettingsPage({
       >
         {activeTab === "apps" ? (
           <div className="settings-section settings-section--tab">
-            <div className="settings-section__header">
+            <div className="settings-section__header settings-section__header--center">
               <div className="section-heading section-heading--compact">
-                <span>应用</span>
-                <h3>
-                  轮盘应用 {mainMenu.sectors.length}/{MAX_SECTOR_COUNT}
-                </h3>
+                <h3>轮盘应用 {mainMenu.sectors.length}/{MAX_SECTOR_COUNT}</h3>
               </div>
 
               <button
-                className="button button--secondary"
+                className="button button--primary"
                 type="button"
                 onClick={handleAddApp}
                 title={mainMenu.sectors.length >= MAX_SECTOR_COUNT ? `主轮盘最多支持 ${MAX_SECTOR_COUNT} 个扇区` : undefined}
@@ -819,87 +816,87 @@ export function SettingsPage({
                     onMouseEnter={() => onPreviewSectorChange(index)}
                     onMouseLeave={() => onPreviewSectorChange(null)}
                   >
-                    <div className="sector-editor__marker">
-                      <button
-                        className="sector-editor__drag-handle"
-                        type="button"
-                        draggable
-                        aria-label={`拖动 ${sectorLabel} 排序，或使用方向键上下调整位置`}
-                        title="拖动排序，方向键上下调整位置"
-                        onDragStart={(event) => handleSectorDragStart(event, sector.id, index)}
-                        onKeyDown={(event) => handleSectorSortKeyDown(event, sector.id, index)}
-                      >
-                        ⋮⋮
-                      </button>
-                      <SectorIconPreview icon={sector.icon} />
-                    </div>
-
-                    <div className="sector-editor__content">
-                      <label className="sector-editor__name" htmlFor={labelInputId}>
-                        <span>名称</span>
-                        <input
-                          aria-describedby={labelError ? labelErrorId : undefined}
-                          aria-invalid={labelError ? true : undefined}
-                          id={labelInputId}
-                          maxLength={32}
-                          value={sector.label}
-                          onChange={(event) =>
-                            commitDraftChange(updateSector(draftConfig, sector.id, { label: event.currentTarget.value }))
-                          }
-                        />
-                        {labelError ? (
-                          <small className="field-error" id={labelErrorId}>
-                            {labelError}
-                          </small>
-                        ) : null}
-                      </label>
-
-                      <div className="sector-editor__meta">
-                        <strong className="sector-editor__type-badge" aria-label={`类型：${actionType.label}`}>
-                          {actionType.label}
-                        </strong>
-                        <span>{placement.accessibleLabel}</span>
-                        <span>{describeAction(sector.action)}</span>
+                    <div className="sector-editor__body">
+                      <div className="sector-editor__marker">
+                        <button
+                          className="sector-editor__drag-handle"
+                          type="button"
+                          draggable
+                          aria-label={`拖动 ${sectorLabel} 排序，或使用方向键上下调整位置`}
+                          title="拖动排序，方向键上下调整位置"
+                          onDragStart={(event) => handleSectorDragStart(event, sector.id, index)}
+                          onKeyDown={(event) => handleSectorSortKeyDown(event, sector.id, index)}
+                        >
+                          ⋮⋮
+                        </button>
+                        <SectorIconPreview icon={sector.icon} />
                       </div>
-                      {hasRuntimeError ? <p className="sector-editor__recovery">上次启动失败，可重新运行或重选应用。</p> : null}
+
+                      <div className="sector-editor__content">
+                        <div className="sector-editor__header-row">
+                          <input
+                            aria-label={`${sectorLabel} 名称`}
+                            aria-describedby={labelError ? labelErrorId : undefined}
+                            aria-invalid={labelError ? true : undefined}
+                            id={labelInputId}
+                            maxLength={32}
+                            value={sector.label}
+                            onChange={(event) =>
+                              commitDraftChange(updateSector(draftConfig, sector.id, { label: event.currentTarget.value }))
+                            }
+                            className="sector-editor__input-name"
+                          />
+                          <span className="sector-editor__badge-type" aria-label={`类型：${actionType.label}`}>
+                            {actionType.label}
+                          </span>
+                          {labelError ? (
+                            <small className="field-error" id={labelErrorId}>
+                              {labelError}
+                            </small>
+                          ) : null}
+                        </div>
+                        <div className="sector-editor__meta-info">
+                          {placement.accessibleLabel} · {describeAction(sector.action)}
+                        </div>
+                        {hasRuntimeError ? <p className="sector-editor__recovery">上次启动失败，可重新运行或重选应用。</p> : null}
+                      </div>
                     </div>
 
                     <div className="sector-editor__actions">
-                      <div className="sector-editor__primary-actions" aria-label={`${sectorLabel} 常用操作`}>
-                        <button
-                          className="icon-button"
-                          type="button"
-                          aria-label={`${hasRuntimeError ? "重试运行" : "运行"} ${sectorLabel}`}
-                          onClick={() => handleExecuteSectorClick(sector.id)}
-                          disabled={sector.action.type !== "app"}
-                        >
-                          {hasRuntimeError ? "重试运行" : "运行"}
-                        </button>
-                        <button
-                          className="icon-button"
-                          type="button"
-                          aria-label={`重新选择 ${sectorLabel} 的应用`}
-                          onClick={() => void handleReplaceApp(sector.id)}
-                          disabled={sector.action.type !== "app"}
-                        >
-                          重选
-                        </button>
-                      </div>
-                      <div className="sector-editor__secondary-actions">
-                        <button
-                          className={
-                            confirmingDeleteSectorId === sector.id
-                              ? "button button--warning button--compact sector-editor__delete"
-                              : "button button--quiet button--compact button--danger sector-editor__delete"
-                          }
-                          type="button"
-                          aria-label={`${confirmingDeleteSectorId === sector.id ? "确认删除" : "删除"} ${sectorLabel}`}
-                          onClick={() => handleRemoveSector(sector.id)}
-                          disabled={mainMenu.sectors.length <= MIN_SECTOR_COUNT}
-                        >
-                          {confirmingDeleteSectorId === sector.id ? "确认删除" : "删除"}
-                        </button>
-                      </div>
+                      <button
+                        className="button button--primary sector-editor__btn-run"
+                        type="button"
+                        aria-label={`${hasRuntimeError ? "重试运行" : "运行"} ${sectorLabel}`}
+                        onClick={() => handleExecuteSectorClick(sector.id)}
+                        disabled={sector.action.type !== "app"}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                        {hasRuntimeError ? "重试运行" : "运行"}
+                      </button>
+                      <button
+                        className="button button--secondary sector-editor__btn-rebuild"
+                        type="button"
+                        aria-label={`重新选择 ${sectorLabel} 的应用`}
+                        onClick={() => void handleReplaceApp(sector.id)}
+                        disabled={sector.action.type !== "app"}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.22-10.27l-4.38 4.38"/></svg>
+                        重选
+                      </button>
+                      <button
+                        className={
+                          confirmingDeleteSectorId === sector.id
+                            ? "button button--warning button--compact"
+                            : "button button--quiet button--compact button--danger sector-editor__btn-delete"
+                        }
+                        type="button"
+                        aria-label={`${confirmingDeleteSectorId === sector.id ? "确认删除" : "删除"} ${sectorLabel}`}
+                        onClick={() => handleRemoveSector(sector.id)}
+                        disabled={mainMenu.sectors.length <= MIN_SECTOR_COUNT}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        {confirmingDeleteSectorId === sector.id ? "确认删除" : "删除"}
+                      </button>
                     </div>
                   </article>
                 );

@@ -195,7 +195,7 @@ function drawWheelBackdrop(
   center: Point,
   wheel: WheelConfig,
   backgroundImage: CanvasImageSource | null,
-  renderMode: "preview" | "runtime",
+  _renderMode: "preview" | "runtime",
 ) {
   const appearance = wheel.appearance;
   const padding = Math.max(12, Math.round(appearance.blurPx * 0.7));
@@ -215,13 +215,13 @@ function drawWheelBackdrop(
   gradient.addColorStop(0.72, rgba(baseColor, alpha));
   gradient.addColorStop(1, rgba(baseColor, Math.max(0, alpha - 0.18)));
 
-  if (renderMode === "preview") {
+  if (appearance.material !== "transparent") {
     context.save();
     context.beginPath();
     context.arc(center.x, center.y, radius, 0, Math.PI * 2);
     context.fillStyle = gradient;
     context.shadowColor = shadowColor(appearance.material);
-    context.shadowBlur = appearance.material === "transparent" ? 0 : Math.max(6, appearance.blurPx);
+    context.shadowBlur = Math.max(6, appearance.blurPx);
     context.shadowOffsetY = appearance.material === "solid" ? 3 : 8;
     context.fill();
     context.restore();
@@ -235,7 +235,7 @@ function drawWheelBackdrop(
     drawImageBackground(
       context,
       center,
-      renderMode === "runtime" ? wheel.outerRadiusPx : radius,
+      wheel.outerRadiusPx,
       appearance.background.opacity,
       appearance.background.fit,
       backgroundImage,
@@ -312,73 +312,48 @@ function getImageSize(image: CanvasImageSource): { width: number; height: number
   return null;
 }
 
-function getSectorFill(wheel: WheelConfig, renderMode: "preview" | "runtime"): string {
+function getSectorFill(wheel: WheelConfig, _renderMode?: "preview" | "runtime"): string {
   const color = hexToRgb(wheel.appearance.backgroundColor);
-  if (renderMode === "runtime") {
-    switch (wheel.appearance.material) {
-      case "transparent":
-        return rgba(color, Math.min(0.34, wheel.appearance.opacity * 0.38));
-      case "acrylic":
-        return rgba(color, Math.min(0.64, wheel.appearance.opacity * 0.58));
-      case "frosted":
-        return rgba(color, Math.min(0.74, wheel.appearance.opacity * 0.68));
-      case "solid":
-        return rgba(color, 1);
-    }
-  }
-
   switch (wheel.appearance.material) {
     case "transparent":
-      return rgba(color, 0.24);
+      return rgba(color, Math.min(0.34, wheel.appearance.opacity * 0.38));
     case "acrylic":
-      return rgba(color, Math.min(0.78, wheel.appearance.opacity * 0.72));
+      return rgba(color, Math.min(0.64, wheel.appearance.opacity * 0.58));
     case "frosted":
-      return rgba(color, Math.min(0.9, wheel.appearance.opacity * 0.84));
+      return rgba(color, Math.min(0.74, wheel.appearance.opacity * 0.68));
     case "solid":
       return rgba(color, 1);
   }
 }
 
-function getCenterFill(wheel: WheelConfig, renderMode: "preview" | "runtime"): string {
+function getCenterFill(wheel: WheelConfig, _renderMode?: "preview" | "runtime"): string {
   const color = hexToRgb(wheel.appearance.backgroundColor);
-  if (renderMode === "runtime") {
-    switch (wheel.appearance.material) {
-      case "transparent":
-        return rgba(color, Math.min(0.46, wheel.appearance.opacity * 0.52));
-      case "acrylic":
-        return rgba(color, Math.min(0.7, wheel.appearance.opacity * 0.68));
-      case "frosted":
-        return rgba(color, Math.min(0.8, wheel.appearance.opacity * 0.76));
-      case "solid":
-        return rgba(color, 1);
-    }
+  switch (wheel.appearance.material) {
+    case "transparent":
+      return rgba(color, Math.min(0.46, wheel.appearance.opacity * 0.52));
+    case "acrylic":
+      return rgba(color, Math.min(0.7, wheel.appearance.opacity * 0.68));
+    case "frosted":
+      return rgba(color, Math.min(0.8, wheel.appearance.opacity * 0.76));
+    case "solid":
+      return rgba(color, 1);
   }
-
-  return rgba(color, wheel.appearance.material === "solid" ? 1 : Math.max(0.72, wheel.appearance.opacity));
 }
 
-function getReadableTextColor(wheel: WheelConfig, renderMode: "preview" | "runtime"): string {
+function getReadableTextColor(wheel: WheelConfig, _renderMode?: "preview" | "runtime"): string {
   const background = hexToRgb(wheel.appearance.backgroundColor);
-  if (isTransparentRuntime(wheel, renderMode)) {
+  if (wheel.appearance.material === "transparent") {
     return "#ffffff";
   }
-  if (renderMode === "runtime" || wheel.appearance.material !== "transparent") {
-    return relativeLuminance(background) < 0.45 ? "#f8fbff" : "#0f172a";
-  }
-
-  return "#dbe7ff";
+  return relativeLuminance(background) < 0.45 ? "#f8fbff" : "#0f172a";
 }
 
-function getCenterTextColor(wheel: WheelConfig, renderMode: "preview" | "runtime"): string {
+function getCenterTextColor(wheel: WheelConfig, _renderMode?: "preview" | "runtime"): string {
   const background = hexToRgb(wheel.appearance.backgroundColor);
-  if (isTransparentRuntime(wheel, renderMode)) {
+  if (wheel.appearance.material === "transparent") {
     return "#ffffff";
   }
-  if (renderMode === "runtime") {
-    return relativeLuminance(background) < 0.45 ? "#dbe7ff" : "#1e293b";
-  }
-
-  return relativeLuminance(background) < 0.45 ? "#a9b8d4" : "#475569";
+  return relativeLuminance(background) < 0.45 ? "#dbe7ff" : "#1e293b";
 }
 
 function materialAlpha(material: WheelConfig["appearance"]["material"], opacity: number): number {
@@ -398,8 +373,8 @@ function shadowColor(material: WheelConfig["appearance"]["material"]): string {
   return material === "transparent" ? "rgba(0, 0, 0, 0)" : "rgba(15, 23, 42, 0.22)";
 }
 
-function isTransparentRuntime(wheel: WheelConfig, renderMode: "preview" | "runtime"): boolean {
-  return renderMode === "runtime" && wheel.appearance.material === "transparent";
+function isTransparentRuntime(wheel: WheelConfig, _renderMode?: "preview" | "runtime"): boolean {
+  return wheel.appearance.material === "transparent";
 }
 
 function applyTransparentTextShadow(context: CanvasRenderingContext2D) {
